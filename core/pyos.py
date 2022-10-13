@@ -22,8 +22,8 @@ from posix_ import WUNTRACED
 from typing import Optional, Tuple, List, Dict, cast, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
+  from _devbuild.gen.syntax_asdl import command_t
   from core.comp_ui import _IDisplay
-  from osh.builtin_trap import _TrapHandler
 
 _ = log
 
@@ -271,7 +271,7 @@ class SigwinchHandler(object):
     # type: (_IDisplay, SignalState) -> None
     self.display = display
     self.sig_state = sig_state
-    self.user_handler = None  # type: _TrapHandler
+    self.user_node = None  # type: command_t
 
   def __call__(self, sig_num, unused_frame):
     # type: (int, Any) -> None
@@ -282,8 +282,9 @@ class SigwinchHandler(object):
     self.sig_state.last_sig_num = UNTRAPPED_SIGWINCH
 
     self.display.OnWindowChange()
-    if self.user_handler:
-      self.user_handler(sig_num, unused_frame)
+    if self.user_node:
+      self.sig_state.last_sig_num = sig_num
+      self.sig_state.run_list.append(self.user_node)
 
 
 def SignalState_AfterForkingChild():
@@ -313,72 +314,23 @@ def SignalState_AfterForkingChild():
   signal.signal(signal.SIGTTIN, signal.SIG_DFL)
 
 
+def Sigaction(sig_num, action):
+    # type: (int, Any) -> None
+    signal.signal(sig_num, action)
+
+
 class SignalState(object):
   """All changes to global signal state go through this object."""
 
-  def __init__(self):
-    # type: () -> None
-    self.sigwinch_handler = None  # type: SigwinchHandler
+  def __init__(self, run_list, display):
+    # type: (List[command_t], _IDisplay) -> None
+    self.sigwinch_handler = SigwinchHandler(display, self)  # type: SigwinchHandler
     self.last_sig_num = 0  # MUTABLE GLOBAL, for interrupted 'wait'
+    self.signal_nodes = {}  # type: Dict[int, command_t]
+    self.signal_run_list = run_list
 
-  def InitShell(self):
-    # type: () -> None
-    """Always called when initializing the shell process."""
-    pass
+  def __call__(self, sig_num, unused_frame):
+    self.last_sig_num = sig_num
+    self.signal_run_list.append(self.signal_nodes[sig_num])
+    del self.signal_nodes[sig_num]
 
-  def InitInteractiveShell(self, display, my_pid):
-    # type: (_IDisplay, int) -> None
-    """Called when initializing an interactive shell."""
-    # The shell itself should ignore Ctrl-\.
-    signal.signal(signal.SIGQUIT, signal.SIG_IGN)
-
-    # This prevents Ctrl-Z from suspending OSH in interactive mode.
-    signal.signal(signal.SIGTSTP, signal.SIG_IGN)
-
-    # More signals from
-    # https://www.gnu.org/software/libc/manual/html_node/Initializing-the-Shell.html
-    # (but not SIGCHLD)
-    signal.signal(signal.SIGTTOU, signal.SIG_IGN)
-    signal.signal(signal.SIGTTIN, signal.SIG_IGN)
-
-    # Register a callback to receive terminal width changes.
-    # NOTE: In line_input.c, we turned off rl_catch_sigwinch.
-
-    # This is ALWAYS on, which means that it can cause EINTR, and wait() and
-    # read() have to handle it
-    self.sigwinch_handler = SigwinchHandler(display, self)
-    signal.signal(signal.SIGWINCH, self.sigwinch_handler)
-
-    # This doesn't make any tests pass, and we might punt on job control
-    if 0:
-      try:
-        # Put the interactive shell in its own process group, named by its PID
-        posix.setpgid(my_pid, my_pid)
-        # Attach the terminal (stdin) to the progress group
-        posix.tcsetpgrp(0, my_pid)
-
-      except (IOError, OSError) as e:
-        # For some reason setpgid() fails with Operation Not Permitted (EPERM) under pexpect?
-        pass
-
-  def AddUserTrap(self, sig_num, handler):
-    # type: (int, Any) -> None
-    """For user-defined handlers registered with the 'trap' builtin."""
-
-    if sig_num == signal.SIGWINCH:
-      assert self.sigwinch_handler is not None
-      self.sigwinch_handler.user_handler = handler
-    else:
-      signal.signal(sig_num, handler)
-    # TODO: SIGINT is similar: set a flag, then optionally call user _TrapHandler
-
-  def RemoveUserTrap(self, sig_num):
-    # type: (int) -> None
-    """For user-defined handlers registered with the 'trap' builtin."""
-    # Restore default
-    if sig_num == signal.SIGWINCH:
-      assert self.sigwinch_handler is not None
-      self.sigwinch_handler.user_handler = None
-    else:
-      signal.signal(sig_num, signal.SIG_DFL)
-    # TODO: SIGINT is similar: set a flag, then optionally call user _TrapHandler

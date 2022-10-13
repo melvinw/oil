@@ -3,14 +3,16 @@
 #ifndef LEAKY_CORE_H
 #define LEAKY_CORE_H
 
+#include <signal.h>
 #include <termios.h>
 
+#include "_gen/frontend/syntax.asdl.h"
 #include "mycpp/runtime.h"
 
-// Hacky forward declaration
-namespace builtin_trap {
-class _TrapHandler;
-};
+// XXX: hacky forward decl
+namespace comp_ui {
+class _IDisplay;
+}  // namespace comp_ui
 
 namespace pyos {
 
@@ -18,6 +20,9 @@ const int TERM_ICANON = ICANON;
 const int TERM_ECHO = ECHO;
 const int EOF_SENTINEL = 256;
 const int NEWLINE_CH = 10;
+
+const int kMaxSigs = 128;  // XXX: would SIGRTMAX + 1 work?
+const int kSignalRunListSize = kMaxSigs;
 
 Tuple2<int, int> WaitPid();
 Tuple2<int, int> Read(int fd, int n, List<Str*>* chunks);
@@ -53,22 +58,33 @@ class TermState {
 
 void SignalState_AfterForkingChild();
 
+// XXX: hacky forward decl
+class SigwinchHandler;
+
 class SignalState {
  public:
-  SignalState() {
-  }
-  void InitShell() {
-  }
-  void AddUserTrap(int sig_num, builtin_trap::_TrapHandler* handler) {
-    NotImplemented();
-  }
-  void RemoveUserTrap(int sig_num) {
-    NotImplemented();
-  }
+  SignalState(List<syntax_asdl::command_t*>* run_list,
+              comp_ui::_IDisplay* unused_display);
+
+  SigwinchHandler* sigwinch_handler;
   int last_sig_num = 0;
+  Dict<int, syntax_asdl::command_t*>* signal_nodes;
+  List<syntax_asdl::command_t*>* signal_run_list;
+
+  // XXX: ideally we would do the idomatic singleton thing below here...
+  static SignalState* Instance;
+  // static SignalState& GetInstance() {
+  //   static SignalState s;
+  //   return s;
+  // }
 
   DISALLOW_COPY_AND_ASSIGN(SignalState)
 };
+
+void Sigaction(int sig, int disposition);
+void Sigaction(int sig, sighandler_t handler);
+void Sigaction(int sig, SignalState* handler);
+void Sigaction(int sig, SigwinchHandler* handler);
 
 }  // namespace pyos
 

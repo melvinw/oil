@@ -116,7 +116,7 @@ class Deps(object):
     self.debug_f = None       # type: util._DebugFile
 
     # signal/hook name -> handler
-    self.traps = None         # type: Dict[str, builtin_trap._TrapHandler]
+    self.traps = None         # type: Dict[str, command_t]
     # appended to by signal handlers
     self.trap_nodes = None    # type: List[command_t]
 
@@ -1433,8 +1433,7 @@ class CommandEvaluator(object):
   def RunPendingTraps(self):
     # type: () -> None
 
-    # See osh/builtin_trap.py _TrapHandler for the code that appends to this
-    # list.
+    # See osh/pyos.py SignalState for the code that appends to this list.
     if len(self.trap_nodes):
       # Make a copy and clear it so we don't cause an infinite loop.
       to_run = list(self.trap_nodes)
@@ -1712,11 +1711,11 @@ class CommandEvaluator(object):
     Could use i & (n-1) == i & 255  because we have a power of 2.
     https://stackoverflow.com/questions/14997165/fastest-way-to-get-a-positive-modulo-in-c-c
     """
-    handler = self.traps.get('EXIT')
-    if handler:
+    trap_node = self.traps.get('EXIT')
+    if trap_node:
       with dev.ctx_Tracer(self.tracer, 'trap EXIT', None):
         try:
-          is_return, is_fatal = self.ExecuteAndCatch(handler.node)
+          is_return, is_fatal = self.ExecuteAndCatch(trap_node)
         except util.UserExit as e:  # explicit exit
           mut_status[0] = e.status
           return

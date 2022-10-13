@@ -154,7 +154,9 @@ template <typename T>
 void list_append(List<T>* self, T item) {
   StackRoots _roots({&self});
 
-  self->reserve(self->len_ + 1);
+  if (self->len_ - self->capacity_ < 1) {
+    self->reserve(self->len_ + 1);
+  }
   self->set(self->len_, item);
   ++self->len_;
 }
@@ -164,7 +166,9 @@ template <typename T>
 void list_append(List<T*>* self, T* item) {
   StackRoots _roots({&self, &item});
 
-  self->reserve(self->len_ + 1);
+  if (self->len_ - self->capacity_ < 1) {
+    self->reserve(self->len_ + 1);
+  }
   self->set(self->len_, item);
   ++self->len_;
 }

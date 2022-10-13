@@ -362,8 +362,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   tracer = dev.Tracer(parse_ctx, exec_opts, mutable_opts, mem, trace_f)
 
   # TODO: We shouldn't have SignalState?
-  sig_state = pyos.SignalState()
-  sig_state.InitShell()
+  sig_state = pyos.SignalState(cmd_deps.trap_nodes, None)
 
   job_state = process.JobState()
   fd_state = process.FdState(errfmt, job_state, mem, tracer, None)
@@ -462,7 +461,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   AddBlock(builtins, mem, mutable_opts, dir_stack, cmd_ev, shell_ex, hay_tree, errfmt)
 
   builtins[builtin_i.trap] = builtin_trap.Trap(
-      sig_state, cmd_deps.traps, cmd_deps.trap_nodes, parse_ctx, tracer,
+      sig_state, cmd_deps.traps, parse_ctx, tracer,
       errfmt)
 
   if flag.c is not None:

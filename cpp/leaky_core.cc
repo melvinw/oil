@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <pwd.h>  // passwd
 #include <signal.h>
+#include <string.h>        // memset()
 #include <sys/resource.h>  // getrusage
 #include <sys/times.h>     // tms / times()
 #include <sys/utsname.h>   // uname
@@ -17,6 +18,8 @@
 #include <unistd.h>        // getuid(), environ
 
 namespace pyos {
+
+SignalState* SignalState::Instance = nullptr;
 
 Tuple2<int, int> WaitPid() {
   int status;
@@ -162,8 +165,8 @@ void PrintTimes() {
       float user_seconds = t.tms_utime % 60;
       int system_minutes = t.tms_stime / 60;
       float system_seconds = t.tms_stime % 60;
-      printf("%dm%1.3fs %dm%1.3fs\n", user_minutes, user_seconds, system_minutes,
-             system_seconds);
+      printf("%dm%1.3fs %dm%1.3fs\n", user_minutes, user_seconds,
+             system_minutes, system_seconds);
     }
 
     {
@@ -185,6 +188,48 @@ void SignalState_AfterForkingChild() {
   signal(SIGQUIT, SIG_DFL);
   signal(SIGPIPE, SIG_DFL);
   signal(SIGTSTP, SIG_DFL);
+}
+
+static void SignalHandler(int sig) {
+  SignalState& s = *SignalState::Instance;
+  // This is a VERY important precondition. We don't want to allocate memory in
+  // this handler.
+  assert(s.signal_run_list->len_ < kSignalRunListSize);
+  s.last_sig_num = sig;
+  s.signal_run_list->append(s.signal_nodes->get(sig));
+  s.signal_nodes->remove(sig);
+}
+
+void Sigaction(int sig, int disposition) {
+  struct sigaction act = {};
+  act.sa_handler = reinterpret_cast<sighandler_t>(disposition);
+  assert(sigaction(sig, &act, nullptr) == 0);
+}
+
+void Sigaction(int sig, sighandler_t handler) {
+  struct sigaction act = {};
+  act.sa_handler = handler;
+  assert(sigaction(sig, &act, nullptr) == 0);
+}
+
+void Sigaction(int sig, SignalState* handler) {
+  struct sigaction act = {};
+  act.sa_handler = SignalHandler;
+  assert(sigaction(sig, &act, nullptr) == 0);
+}
+
+void Sigaction(int sig, SigwinchHandler* handler) {
+  NotImplemented();
+}
+
+SignalState::SignalState(List<syntax_asdl::command_t*>* run_list,
+                         comp_ui::_IDisplay* unused_display)
+    : sigwinch_handler(),
+      last_sig_num(),
+      signal_nodes(Alloc<Dict<int, syntax_asdl::command_t*>>()),
+      signal_run_list(run_list) {
+  assert(SignalState::Instance == nullptr);
+  SignalState::Instance = this;
 }
 
 }  // namespace pyos
