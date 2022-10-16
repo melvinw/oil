@@ -94,6 +94,7 @@ def _InitInteractiveShell(sig_state, display, my_pid):
 
   # This is ALWAYS on, which means that it can cause EINTR, and wait() and
   # read() have to handle it
+  sig_state.sigwinch_handler = SigwinchHandler(display, sig_state)
   if mylib.PYTHON:
     pyos.Sigaction(signal.SIGWINCH, sig_state.sigwinch_handler)
 
@@ -377,7 +378,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   tracer = dev.Tracer(parse_ctx, exec_opts, mutable_opts, mem, trace_f)
   fd_state.tracer = tracer  # circular dep
 
-  sig_state = pyos.SignalState(cmd_deps.trap_nodes, display)
+  sig_state = pyos.SignalState(cmd_deps.trap_nodes)
   waiter = process.Waiter(job_state, exec_opts, sig_state, tracer)
   fd_state.waiter = waiter
 

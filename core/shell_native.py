@@ -362,7 +362,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   tracer = dev.Tracer(parse_ctx, exec_opts, mutable_opts, mem, trace_f)
 
   # TODO: We shouldn't have SignalState?
-  sig_state = pyos.SignalState(cmd_deps.trap_nodes, None)
+  sig_state = pyos.SignalState(cmd_deps.trap_nodes)
 
   job_state = process.JobState()
   fd_state = process.FdState(errfmt, job_state, mem, tracer, None)

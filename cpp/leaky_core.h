@@ -9,11 +9,6 @@
 #include "_gen/frontend/syntax.asdl.h"
 #include "mycpp/runtime.h"
 
-// XXX: hacky forward decl
-namespace comp_ui {
-class _IDisplay;
-}  // namespace comp_ui
-
 namespace pyos {
 
 const int TERM_ICANON = ICANON;
@@ -63,8 +58,7 @@ class SigwinchHandler;
 
 class SignalState {
  public:
-  SignalState(List<syntax_asdl::command_t*>* run_list,
-              comp_ui::_IDisplay* unused_display);
+  SignalState(List<syntax_asdl::command_t*>* run_list);
 
   SigwinchHandler* sigwinch_handler;
   int last_sig_num = 0;

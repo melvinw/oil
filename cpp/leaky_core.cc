@@ -222,8 +222,7 @@ void Sigaction(int sig, SigwinchHandler* handler) {
   NotImplemented();
 }
 
-SignalState::SignalState(List<syntax_asdl::command_t*>* run_list,
-                         comp_ui::_IDisplay* unused_display)
+SignalState::SignalState(List<syntax_asdl::command_t*>* run_list)
     : sigwinch_handler(),
       last_sig_num(),
       signal_nodes(Alloc<Dict<int, syntax_asdl::command_t*>>()),

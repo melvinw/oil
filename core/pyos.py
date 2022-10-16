@@ -322,9 +322,9 @@ def Sigaction(sig_num, action):
 class SignalState(object):
   """All changes to global signal state go through this object."""
 
-  def __init__(self, run_list, display):
-    # type: (List[command_t], _IDisplay) -> None
-    self.sigwinch_handler = SigwinchHandler(display, self)  # type: SigwinchHandler
+  def __init__(self, run_list):
+    # type: (List[command_t]) -> None
+    self.sigwinch_handler = None  # type: SigwinchHandler
     self.last_sig_num = 0  # MUTABLE GLOBAL, for interrupted 'wait'
     self.signal_nodes = {}  # type: Dict[int, command_t]
     self.signal_run_list = run_list
