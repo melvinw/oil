@@ -1433,8 +1433,8 @@ class CommandEvaluator(object):
   def RunPendingTraps(self):
     # type: () -> None
 
-    trap_nodes = self.trap_state.Take()
-    # See osh/pyos.py SignalState for the code that appends to this list.
+    trap_nodes = self.trap_state.TakeRunList()
+    # See osh/builtin_trap.py TrapState for the code that appends to this list.
     if len(trap_nodes):
       # Make a copy and clear it so we don't cause an infinite loop.
       to_run = list(trap_nodes)

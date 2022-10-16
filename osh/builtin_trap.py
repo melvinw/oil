@@ -124,7 +124,7 @@ class TrapState(pyos.SignalHandler):
         del self.trap_nodes[sig_num]
       # TODO: SIGINT is similar: set a flag, then optionally call user handler
 
-    def Take(self):
+    def TakeRunList(self):
         # type: () -> List[command_t]
         new_run_list = []  # type: List[command_t]
         pyos.ReserveHandlerCapacity(new_run_list)
