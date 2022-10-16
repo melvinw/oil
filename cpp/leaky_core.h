@@ -56,10 +56,6 @@ class TermState {
   }
 };
 
-void SignalState_AfterForkingChild();
-
-void InitSignalState();
-
 class SignalHandler : public Obj {
  public:
   SignalHandler() : Obj(Tag::FixedSize, kZeroMask, 0) {
@@ -69,29 +65,6 @@ class SignalHandler : public Obj {
 
 void Sigaction(int sig_num, SignalHandler* handler);
 void Sigaction(int sig_num, sighandler_t handler);
-
-// XXX: hacky forward decl
-class SigwinchHandler;
-
-class SignalState {
- public:
-  SignalState(List<syntax_asdl::command_t*>* run_list) {
-  }
-
-  SigwinchHandler* sigwinch_handler;
-  int last_sig_num = 0;
-  Dict<int, syntax_asdl::command_t*>* signal_nodes;
-  List<syntax_asdl::command_t*>* signal_run_list;
-
-  // XXX: ideally we would do the idomatic singleton thing below here...
-  static SignalState* Instance;
-  // static SignalState& GetInstance() {
-  //   static SignalState s;
-  //   return s;
-  // }
-
-  DISALLOW_COPY_AND_ASSIGN(SignalState)
-};
 
 void ReserveHandlerCapacity(List<syntax_asdl::command_t*>* list);
 

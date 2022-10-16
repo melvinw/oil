@@ -23,7 +23,6 @@ from typing import Optional, Tuple, List, Dict, cast, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
   from _devbuild.gen.syntax_asdl import command_t
-  from core.comp_ui import _IDisplay
 
 _ = log
 
@@ -264,55 +263,6 @@ def InputAvailable(fd):
 
 UNTRAPPED_SIGWINCH = -1
 
-class SigwinchHandler(object):
-  """Wrapper to call user handler."""
-
-  def __init__(self, display, sig_state):
-    # type: (_IDisplay, SignalState) -> None
-    self.display = display
-    self.sig_state = sig_state
-    self.user_node = None  # type: command_t
-
-  def __call__(self, sig_num, unused_frame):
-    # type: (int, Any) -> None
-    """For Python's signal module."""
-
-    # SENTINEL for UNTRAPPED SIGWINCH.  If it's trapped, self.user_handler
-    # will overwrite it with signal.SIGWINCH.
-    self.sig_state.last_sig_num = UNTRAPPED_SIGWINCH
-
-    self.display.OnWindowChange()
-    if self.user_node:
-      self.sig_state.last_sig_num = sig_num
-      self.sig_state.run_list.append(self.user_node)
-
-
-def SignalState_AfterForkingChild():
-  # type: () -> None
-  """Not a member of SignalState since we didn't do dependency injection."""
-
-  # Note: this happens in BOTH interactive and non-interactive shells.
-  # We technically don't need to do most of it in non-interactive, since we
-  # did not change state in InitInteractiveShell().
-
-  # Python sets SIGPIPE handler to SIG_IGN by default.  Child processes
-  # shouldn't have this.
-  # https://docs.python.org/2/library/signal.html
-  # See Python/pythonrun.c.
-  signal.signal(signal.SIGPIPE, signal.SIG_DFL)
-
-  # Respond to Ctrl-\ (core dump)
-  signal.signal(signal.SIGQUIT, signal.SIG_DFL)
-
-  # Child processes should get Ctrl-Z.
-  signal.signal(signal.SIGTSTP, signal.SIG_DFL)
-
-  # More signals from
-  # https://www.gnu.org/software/libc/manual/html_node/Launching-Jobs.html
-  # (but not SIGCHLD)
-  signal.signal(signal.SIGTTOU, signal.SIG_DFL)
-  signal.signal(signal.SIGTTIN, signal.SIG_DFL)
-
 
 class SignalHandler(object):
     def Run(self, sig_num):
@@ -326,22 +276,6 @@ def Sigaction(sig_num, handler):
         signal.signal(sig_num, lambda sig_num, unused_frame: handler.Run(sig_num))
     else:
         signal.signal(sig_num, handler)
-
-
-class SignalState(object):
-  """All changes to global signal state go through this object."""
-
-  def __init__(self, run_list):
-    # type: (List[command_t]) -> None
-    self.sigwinch_handler = None  # type: SigwinchHandler
-    self.last_sig_num = 0  # MUTABLE GLOBAL, for interrupted 'wait'
-    self.signal_nodes = {}  # type: Dict[int, command_t]
-    self.signal_run_list = run_list
-
-  def __call__(self, sig_num, unused_frame):
-    self.last_sig_num = sig_num
-    self.signal_run_list.append(self.signal_nodes[sig_num])
-    del self.signal_nodes[sig_num]
 
 
 def ReserveHandlerCapacity(l):

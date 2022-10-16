@@ -74,31 +74,6 @@ if TYPE_CHECKING:
   from _devbuild.gen.runtime_asdl import Proc
 
 
-def _InitInteractiveShell(sig_state, display, my_pid):
-  # type: (_IDisplay, int) -> None
-  """Called when initializing an interactive shell."""
-  # The shell itself should ignore Ctrl-\.
-  pyos.Sigaction(signal.SIGQUIT, signal.SIG_IGN)
-
-  # This prevents Ctrl-Z from suspending OSH in interactive mode.
-  pyos.Sigaction(signal.SIGTSTP, signal.SIG_IGN)
-
-  # More signals from
-  # https://www.gnu.org/software/libc/manual/html_node/Initializing-the-Shell.html
-  # (but not SIGCHLD)
-  pyos.Sigaction(signal.SIGTTOU, signal.SIG_IGN)
-  pyos.Sigaction(signal.SIGTTIN, signal.SIG_IGN)
-
-  # Register a callback to receive terminal width changes.
-  # NOTE: In line_input.c, we turned off rl_catch_sigwinch.
-
-  # This is ALWAYS on, which means that it can cause EINTR, and wait() and
-  # read() have to handle it
-  sig_state.sigwinch_handler = SigwinchHandler(display, sig_state)
-  if mylib.PYTHON:
-    pyos.Sigaction(signal.SIGWINCH, sig_state.sigwinch_handler)
-
-
 def _InitDefaultCompletions(cmd_ev, complete_builtin, comp_lookup):
   # type: (cmd_eval.CommandEvaluator, builtin_comp.Complete, completion.Lookup) -> None
 
@@ -222,7 +197,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   # - no expression evaluator
   # - no interactive shell, or line_input
   # - no process.*
-  #   process.{ExternalProgram,Waiter,FdState,JobState,SignalState} -- we want
+  #   process.{ExternalProgram,Waiter,FdState,JobState,TrapState} -- we want
   #   to evaluate config files without any of these
   # Modules not translated yet: completion, comp_ui, builtin_comp, process
   # - word evaluator
@@ -378,8 +353,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   tracer = dev.Tracer(parse_ctx, exec_opts, mutable_opts, mem, trace_f)
   fd_state.tracer = tracer  # circular dep
 
-  sig_state = pyos.SignalState([]) # XXX
-  waiter = process.Waiter(job_state, exec_opts, sig_state, tracer)
+  waiter = process.Waiter(job_state, exec_opts, cmd_deps.trap_state, tracer)
   fd_state.waiter = waiter
 
   cmd_deps.debug_f = debug_f
@@ -511,8 +485,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   builtins[builtin_i.compopt] = builtin_comp.CompOpt(compopt_state, errfmt)
   builtins[builtin_i.compadjust] = builtin_comp.CompAdjust(mem)
 
-  builtins[builtin_i.trap] = builtin_trap.Trap(sig_state, cmd_deps.traps,
-                                               cmd_deps.trap_state, parse_ctx, tracer, errfmt)
+  builtins[builtin_i.trap] = builtin_trap.Trap(cmd_deps.traps, cmd_deps.trap_state, parse_ctx, tracer, errfmt)
 
   # History evaluation is a no-op if line_input is None.
   hist_ev = history.Evaluator(line_input, hist_ctx, debug_f)
@@ -648,7 +621,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
     else:  # Without readline module
       display = comp_ui.MinimalDisplay(comp_ui_state, prompt_state, debug_f)
 
-    _InitInteractiveShell(self.sig_state, display, my_pid)
+    cmd_deps.trap_state.InitInteractiveShell(display, my_pid)
 
     # NOTE: called AFTER _InitDefaultCompletions.
     with state.ctx_ThisDir(mem, rc_path):

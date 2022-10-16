@@ -184,12 +184,6 @@ bool InputAvailable(int fd) {
   NotImplemented();
 }
 
-void SignalState_AfterForkingChild() {
-  signal(SIGQUIT, SIG_DFL);
-  signal(SIGPIPE, SIG_DFL);
-  signal(SIGTSTP, SIG_DFL);
-}
-
 static void signal_handler(int sig_num) {
   assert(gSignalHandlers != nullptr);
   SignalHandler* handler = gSignalHandlers->get(sig_num);
@@ -211,9 +205,6 @@ void Sigaction(int sig_num, sighandler_t handler) {
   struct sigaction act = {};
   act.sa_handler = handler;
   assert(sigaction(sig_num, &act, nullptr) == 0);
-}
-
-void InitSignalState() {
 }
 
 void ReserveHandlerCapacity(List<syntax_asdl::command_t*>* list) {

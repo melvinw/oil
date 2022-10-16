@@ -361,12 +361,9 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
     trace_f = util.DebugFile(mylib.Stderr())
   tracer = dev.Tracer(parse_ctx, exec_opts, mutable_opts, mem, trace_f)
 
-  # TODO: We shouldn't have SignalState?
-  sig_state = pyos.SignalState([]) # XXX
-
   job_state = process.JobState()
   fd_state = process.FdState(errfmt, job_state, mem, tracer, None)
-  waiter = process.Waiter(job_state, exec_opts, sig_state, tracer)
+  waiter = process.Waiter(job_state, exec_opts, cmd_deps.trap_state, tracer)
   fd_state.waiter = waiter  # circular dep
 
   interp = environ.get('OSH_HIJACK_SHEBANG', '')
@@ -460,8 +457,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
           errfmt)
   AddBlock(builtins, mem, mutable_opts, dir_stack, cmd_ev, shell_ex, hay_tree, errfmt)
 
-  builtins[builtin_i.trap] = builtin_trap.Trap(
-      sig_state, cmd_deps.traps, cmd_deps.trap_state, parse_ctx, tracer, errfmt)
+  builtins[builtin_i.trap] = builtin_trap.Trap(cmd_deps.traps, cmd_deps.trap_state, parse_ctx, tracer, errfmt)
 
   if flag.c is not None:
     arena.PushSource(source.CFlag())

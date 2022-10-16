@@ -4,7 +4,7 @@ builtin_trap.py
 """
 from __future__ import print_function
 
-from signal import SIG_DFL, SIGKILL, SIGSTOP, SIGWINCH
+from signal import SIG_DFL, SIG_IGN, SIGKILL, SIGSTOP, SIGWINCH
 
 from _devbuild.gen import arg_types
 from _devbuild.gen.runtime_asdl import cmd_value__Argv
@@ -26,6 +26,7 @@ from mycpp.mylib import iteritems
 from typing import List, Dict, Optional, Any, TYPE_CHECKING
 if TYPE_CHECKING:
   from _devbuild.gen.syntax_asdl import command_t
+  from core.comp_ui import _IDisplay
   from core.ui import ErrorFormatter
   from frontend.parse_lib import ParseContext
 
@@ -68,20 +69,45 @@ class TrapState(pyos.SignalHandler):
         # type: () -> None
         self.run_list = []  # type: List[command_t]
         self.trap_nodes = {}  # type: Dict[int, command_t]
+        self.display = None  # type: _IDisplay
+        self.last_sig_num = 0  # type: int
         pyos.ReserveHandlerCapacity(self.run_list)
+
+    def InitInteractiveShell(self, display, my_pid):
+      # type: (_IDisplay, int) -> None
+      """Called when initializing an interactive shell."""
+      # The shell itself should ignore Ctrl-\.
+      pyos.Sigaction(_GetSignalNumber("SIGQUIT"), SIG_IGN)
+    
+      # This prevents Ctrl-Z from suspending OSH in interactive mode.
+      pyos.Sigaction(_GetSignalNumber("SIGTSTP"), SIG_IGN)
+    
+      # More signals from
+      # https://www.gnu.org/software/libc/manual/html_node/Initializing-the-Shell.html
+      # (but not SIGCHLD)
+      pyos.Sigaction(_GetSignalNumber("SIGTTOU"), SIG_IGN)
+      pyos.Sigaction(_GetSignalNumber("SIGTTIN"), SIG_IGN)
+    
+      # Register a callback to receive terminal width changes.
+      # NOTE: In line_input.c, we turned off rl_catch_sigwinch.
+    
+      # This is ALWAYS on, which means that it can cause EINTR, and wait() and
+      # read() have to handle it
+      self.display = display
+
+      if mylib.PYTHON:
+        pyos.Sigaction(SIGWINCH, self)
 
     def AddUserTrap(self, sig_num, node):
       # type: (int, command_t) -> None
       """For user-defined handlers registered with the 'trap' builtin."""
   
+      self.trap_nodes[sig_num] = node
       if sig_num == SIGWINCH:
-        pass # XXX
-        #if mylib.PYTHON:
-        #  assert self.sig_state.sigwinch_handler is not None
-        #  self.sig_state.sigwinch_handler.user_node = node
-        #  #pyos.Sigaction(sig_num, self.sig_state.sigwinch_handler)
+        if mylib.PYTHON:
+          assert self.display is not None
+          pyos.Sigaction(sig_num, self)
       else:
-        self.trap_nodes[sig_num] = node
         pyos.Sigaction(sig_num, self)
       # TODO: SIGINT is similar: set a flag, then optionally call user handler
 
@@ -90,14 +116,12 @@ class TrapState(pyos.SignalHandler):
       """For user-defined handlers registered with the 'trap' builtin."""
       # Restore default
       if sig_num == SIGWINCH:
-        pass # XXX
-        #if mylib.PYTHON:
-        #  assert self.sig_state.sigwinch_handler is not None
-        #  self.sig_state.sigwinch_handler.user_node = None
+        if mylib.PYTHON:
+          self.trap_nodes[sig_num] = None
       else:
         pyos.Sigaction(sig_num, SIG_DFL)
-        if sig_num in self.trap_nodes:
-          del self.trap_nodes[sig_num]
+      if sig_num in self.trap_nodes:
+        del self.trap_nodes[sig_num]
       # TODO: SIGINT is similar: set a flag, then optionally call user handler
 
     def Take(self):
@@ -110,14 +134,26 @@ class TrapState(pyos.SignalHandler):
 
     def Run(self, sig_num):
         # type: (int) -> None
-        assert sig_num in self.trap_nodes
-        self.run_list.append(self.trap_nodes[sig_num])
+
+        if sig_num == SIGWINCH:
+          if mylib.PYTHON:
+            # SENTINEL for UNTRAPPED SIGWINCH. If it's trapped we will overwrite
+            # it with signal.SIGWINCH below.
+            self.last_sig_num = pyos.UNTRAPPED_SIGWINCH
+
+            assert self.display is not None
+            self.display.OnWindowChange()
+        else:
+          assert sig_num in self.trap_nodes
+
+        if sig_num in self.trap_nodes:
+          self.last_sig_num = sig_num
+          self.run_list.append(self.trap_nodes[sig_num])
 
 
 class Trap(vm._Builtin):
-  def __init__(self, sig_state, traps, trap_state, parse_ctx, tracer, errfmt):
-    # type: (pyos.SignalState, Dict[str, command_t], TrapState, ParseContext, dev.Tracer, ErrorFormatter) -> None
-    self.sig_state = sig_state
+  def __init__(self, traps, trap_state, parse_ctx, tracer, errfmt):
+    # type: (Dict[str, command_t], TrapState, ParseContext, dev.Tracer, ErrorFormatter) -> None
     self.traps = traps
     self.trap_state = trap_state
     self.parse_ctx = parse_ctx
