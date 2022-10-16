@@ -314,9 +314,18 @@ def SignalState_AfterForkingChild():
   signal.signal(signal.SIGTTIN, signal.SIG_DFL)
 
 
-def Sigaction(sig_num, action):
+class SignalHandler(object):
+    def Run(self, sig_num):
+        # type: (int) -> None
+        raise NotImplementedError()
+
+
+def Sigaction(sig_num, handler):
     # type: (int, Any) -> None
-    signal.signal(sig_num, action)
+    if isinstance(handler, SignalHandler):
+        signal.signal(sig_num, lambda sig_num, unused_frame: handler.Run(sig_num))
+    else:
+        signal.signal(sig_num, handler)
 
 
 class SignalState(object):
@@ -334,3 +343,7 @@ class SignalState(object):
     self.signal_run_list.append(self.signal_nodes[sig_num])
     del self.signal_nodes[sig_num]
 
+
+def ReserveHandlerCapacity(l):
+  # type: (List[command_t]) -> None
+  pass

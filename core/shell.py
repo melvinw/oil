@@ -344,7 +344,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   # evaluators.  Some of the four below are only shared between a builtin and
   # the CommandEvaluator, so we could put them somewhere else.
   cmd_deps.traps = {}
-  cmd_deps.trap_nodes = []  # TODO: Clear on fork() to avoid duplicates
+  cmd_deps.trap_state = builtin_trap.TrapState()
 
   job_state = process.JobState()
   fd_state = process.FdState(errfmt, job_state, mem, None, None)
@@ -378,7 +378,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   tracer = dev.Tracer(parse_ctx, exec_opts, mutable_opts, mem, trace_f)
   fd_state.tracer = tracer  # circular dep
 
-  sig_state = pyos.SignalState(cmd_deps.trap_nodes)
+  sig_state = pyos.SignalState([]) # XXX
   waiter = process.Waiter(job_state, exec_opts, sig_state, tracer)
   fd_state.waiter = waiter
 
@@ -512,7 +512,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   builtins[builtin_i.compadjust] = builtin_comp.CompAdjust(mem)
 
   builtins[builtin_i.trap] = builtin_trap.Trap(sig_state, cmd_deps.traps,
-                                               parse_ctx, tracer, errfmt)
+                                               cmd_deps.trap_state, parse_ctx, tracer, errfmt)
 
   # History evaluation is a no-op if line_input is None.
   hist_ev = history.Evaluator(line_input, hist_ctx, debug_f)

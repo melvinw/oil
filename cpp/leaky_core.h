@@ -9,6 +9,11 @@
 #include "_gen/frontend/syntax.asdl.h"
 #include "mycpp/runtime.h"
 
+// XXX: hacky forward decl
+namespace comp_ui {
+class _IDisplay;
+}  // namespace comp_ui
+
 namespace pyos {
 
 const int TERM_ICANON = ICANON;
@@ -53,12 +58,25 @@ class TermState {
 
 void SignalState_AfterForkingChild();
 
+void InitSignalState();
+
+class SignalHandler : public Obj {
+ public:
+  SignalHandler() : Obj(Tag::FixedSize, kZeroMask, 0) {
+  }
+  virtual void Run(int) = 0;
+};
+
+void Sigaction(int sig_num, SignalHandler* handler);
+void Sigaction(int sig_num, sighandler_t handler);
+
 // XXX: hacky forward decl
 class SigwinchHandler;
 
 class SignalState {
  public:
-  SignalState(List<syntax_asdl::command_t*>* run_list);
+  SignalState(List<syntax_asdl::command_t*>* run_list) {
+  }
 
   SigwinchHandler* sigwinch_handler;
   int last_sig_num = 0;
@@ -75,10 +93,7 @@ class SignalState {
   DISALLOW_COPY_AND_ASSIGN(SignalState)
 };
 
-void Sigaction(int sig, int disposition);
-void Sigaction(int sig, sighandler_t handler);
-void Sigaction(int sig, SignalState* handler);
-void Sigaction(int sig, SigwinchHandler* handler);
+void ReserveHandlerCapacity(List<syntax_asdl::command_t*>* list);
 
 }  // namespace pyos
 

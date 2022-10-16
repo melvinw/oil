@@ -19,7 +19,7 @@
 
 namespace pyos {
 
-SignalState* SignalState::Instance = nullptr;
+static Dict<int, SignalHandler*>* gSignalHandlers = nullptr;
 
 Tuple2<int, int> WaitPid() {
   int status;
@@ -190,45 +190,34 @@ void SignalState_AfterForkingChild() {
   signal(SIGTSTP, SIG_DFL);
 }
 
-static void SignalHandler(int sig) {
-  SignalState& s = *SignalState::Instance;
-  // This is a VERY important precondition. We don't want to allocate memory in
-  // this handler.
-  assert(s.signal_run_list->len_ < kSignalRunListSize);
-  s.last_sig_num = sig;
-  s.signal_run_list->append(s.signal_nodes->get(sig));
-  s.signal_nodes->remove(sig);
+static void signal_handler(int sig_num) {
+  assert(gSignalHandlers != nullptr);
+  SignalHandler* handler = gSignalHandlers->get(sig_num);
+  assert(handler != nullptr);
+  handler->Run(sig_num);
 }
 
-void Sigaction(int sig, int disposition) {
+void Sigaction(int sig_num, SignalHandler* handler) {
+  if (gSignalHandlers == nullptr) {
+    gSignalHandlers = Alloc<Dict<int, SignalHandler*>>();
+  }
+  gSignalHandlers->set(sig_num, handler);
   struct sigaction act = {};
-  act.sa_handler = reinterpret_cast<sighandler_t>(disposition);
-  assert(sigaction(sig, &act, nullptr) == 0);
+  act.sa_handler = signal_handler;
+  assert(sigaction(sig_num, &act, nullptr) == 0);
 }
 
-void Sigaction(int sig, sighandler_t handler) {
+void Sigaction(int sig_num, sighandler_t handler) {
   struct sigaction act = {};
   act.sa_handler = handler;
-  assert(sigaction(sig, &act, nullptr) == 0);
+  assert(sigaction(sig_num, &act, nullptr) == 0);
 }
 
-void Sigaction(int sig, SignalState* handler) {
-  struct sigaction act = {};
-  act.sa_handler = SignalHandler;
-  assert(sigaction(sig, &act, nullptr) == 0);
+void InitSignalState() {
 }
 
-void Sigaction(int sig, SigwinchHandler* handler) {
-  NotImplemented();
-}
-
-SignalState::SignalState(List<syntax_asdl::command_t*>* run_list)
-    : sigwinch_handler(),
-      last_sig_num(),
-      signal_nodes(Alloc<Dict<int, syntax_asdl::command_t*>>()),
-      signal_run_list(run_list) {
-  assert(SignalState::Instance == nullptr);
-  SignalState::Instance = this;
+void ReserveHandlerCapacity(List<syntax_asdl::command_t*>* list) {
+  list->reserve(1024);
 }
 
 }  // namespace pyos

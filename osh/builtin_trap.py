@@ -63,11 +63,63 @@ _HOOK_NAMES = ['EXIT', 'ERR', 'RETURN', 'DEBUG']
 # Then hit Ctrl-C.
 
 
+class TrapState(pyos.SignalHandler):
+    def __init__(self):
+        # type: () -> None
+        self.run_list = []  # type: List[command_t]
+        self.trap_nodes = {}  # type: Dict[int, command_t]
+        pyos.ReserveHandlerCapacity(self.run_list)
+
+    def AddUserTrap(self, sig_num, node):
+      # type: (int, command_t) -> None
+      """For user-defined handlers registered with the 'trap' builtin."""
+  
+      if sig_num == SIGWINCH:
+        pass # XXX
+        #if mylib.PYTHON:
+        #  assert self.sig_state.sigwinch_handler is not None
+        #  self.sig_state.sigwinch_handler.user_node = node
+        #  #pyos.Sigaction(sig_num, self.sig_state.sigwinch_handler)
+      else:
+        self.trap_nodes[sig_num] = node
+        pyos.Sigaction(sig_num, self)
+      # TODO: SIGINT is similar: set a flag, then optionally call user handler
+
+    def RemoveUserTrap(self, sig_num):
+      # type: (int) -> None
+      """For user-defined handlers registered with the 'trap' builtin."""
+      # Restore default
+      if sig_num == SIGWINCH:
+        pass # XXX
+        #if mylib.PYTHON:
+        #  assert self.sig_state.sigwinch_handler is not None
+        #  self.sig_state.sigwinch_handler.user_node = None
+      else:
+        pyos.Sigaction(sig_num, SIG_DFL)
+        if sig_num in self.trap_nodes:
+          del self.trap_nodes[sig_num]
+      # TODO: SIGINT is similar: set a flag, then optionally call user handler
+
+    def Take(self):
+        # type: () -> List[command_t]
+        new_run_list = []  # type: List[command_t]
+        pyos.ReserveHandlerCapacity(new_run_list)
+        ret = self.run_list
+        self.run_list = new_run_list
+        return ret
+
+    def Run(self, sig_num):
+        # type: (int) -> None
+        assert sig_num in self.trap_nodes
+        self.run_list.append(self.trap_nodes[sig_num])
+
+
 class Trap(vm._Builtin):
-  def __init__(self, sig_state, traps, parse_ctx, tracer, errfmt):
-    # type: (pyos.SignalState, Dict[str, command_t], ParseContext, dev.Tracer, ErrorFormatter) -> None
+  def __init__(self, sig_state, traps, trap_state, parse_ctx, tracer, errfmt):
+    # type: (pyos.SignalState, Dict[str, command_t], TrapState, ParseContext, dev.Tracer, ErrorFormatter) -> None
     self.sig_state = sig_state
     self.traps = traps
+    self.trap_state = trap_state
     self.parse_ctx = parse_ctx
     self.arena = parse_ctx.arena
     self.tracer = tracer
@@ -93,33 +145,7 @@ class Trap(vm._Builtin):
 
     return node
 
-  def AddUserTrap(self, sig_num, node):
-    # type: (int, command_t) -> None
-    """For user-defined handlers registered with the 'trap' builtin."""
 
-    if sig_num == SIGWINCH:
-      if mylib.PYTHON:
-        assert self.sig_state.sigwinch_handler is not None
-        self.sig_state.sigwinch_handler.user_node = node
-        pyos.Sigaction(sig_num, self.sig_state.sigwinch_handler)
-    else:
-      self.sig_state.signal_nodes[sig_num] = node
-      pyos.Sigaction(sig_num, self.sig_state)
-    # TODO: SIGINT is similar: set a flag, then optionally call user handler
-
-  def RemoveUserTrap(self, sig_num):
-    # type: (int) -> None
-    """For user-defined handlers registered with the 'trap' builtin."""
-    # Restore default
-    if sig_num == SIGWINCH:
-      if mylib.PYTHON:
-        assert self.sig_state.sigwinch_handler is not None
-        self.sig_state.sigwinch_handler.user_node = None
-    else:
-      pyos.Sigaction(sig_num, SIG_DFL)
-      if sig_num in self.sig_state.signal_nodes:
-        del self.sig_state.signal_nodes[sig_num]
-    # TODO: SIGINT is similar: set a flag, then optionally call user handler
 
   def Run(self, cmd_val):
     # type: (cmd_value__Argv) -> int
@@ -180,7 +206,7 @@ class Trap(vm._Builtin):
         except KeyError:
           pass
 
-        self.RemoveUserTrap(sig_num)
+        self.trap_state.RemoveUserTrap(sig_num)
         return 0
 
       raise AssertionError('Signal or trap')
@@ -209,7 +235,7 @@ class Trap(vm._Builtin):
                            span_id=sig_spid)
         # Other shells return 0, but this seems like an obvious error
         return 1
-      self.AddUserTrap(sig_num, node)
+      self.trap_state.AddUserTrap(sig_num, node)
       return 0
 
     raise AssertionError('Signal or trap')

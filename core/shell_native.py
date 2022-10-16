@@ -326,7 +326,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   # evaluators.  Some of the four below are only shared between a builtin and
   # the CommandEvaluator, so we could put them somewhere else.
   cmd_deps.traps = {}
-  cmd_deps.trap_nodes = []  # TODO: Clear on fork() to avoid duplicates
+  cmd_deps.trap_state = builtin_trap.TrapState()
 
   my_pid = posix.getpid()
 
@@ -362,7 +362,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   tracer = dev.Tracer(parse_ctx, exec_opts, mutable_opts, mem, trace_f)
 
   # TODO: We shouldn't have SignalState?
-  sig_state = pyos.SignalState(cmd_deps.trap_nodes)
+  sig_state = pyos.SignalState([]) # XXX
 
   job_state = process.JobState()
   fd_state = process.FdState(errfmt, job_state, mem, tracer, None)
@@ -461,8 +461,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   AddBlock(builtins, mem, mutable_opts, dir_stack, cmd_ev, shell_ex, hay_tree, errfmt)
 
   builtins[builtin_i.trap] = builtin_trap.Trap(
-      sig_state, cmd_deps.traps, parse_ctx, tracer,
-      errfmt)
+      sig_state, cmd_deps.traps, cmd_deps.trap_state, parse_ctx, tracer, errfmt)
 
   if flag.c is not None:
     arena.PushSource(source.CFlag())

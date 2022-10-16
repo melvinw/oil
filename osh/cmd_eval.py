@@ -118,7 +118,7 @@ class Deps(object):
     # signal/hook name -> handler
     self.traps = None         # type: Dict[str, command_t]
     # appended to by signal handlers
-    self.trap_nodes = None    # type: List[command_t]
+    self.trap_state = None    # type: builtin_trap.TrapState
 
 
 if mylib.PYTHON:
@@ -291,7 +291,7 @@ class CommandEvaluator(object):
     self.debug_f = cmd_deps.debug_f  # Used by ShellFuncAction too
 
     self.traps = cmd_deps.traps
-    self.trap_nodes = cmd_deps.trap_nodes
+    self.trap_state = cmd_deps.trap_state
 
     self.loop_level = 0  # for detecting bad top-level break/continue
     self.check_command_sub_status = False  # a hack.  Modified by ShellExecutor
@@ -1433,11 +1433,12 @@ class CommandEvaluator(object):
   def RunPendingTraps(self):
     # type: () -> None
 
+    trap_nodes = self.trap_state.Take()
     # See osh/pyos.py SignalState for the code that appends to this list.
-    if len(self.trap_nodes):
+    if len(trap_nodes):
       # Make a copy and clear it so we don't cause an infinite loop.
-      to_run = list(self.trap_nodes)
-      del self.trap_nodes[:]
+      to_run = list(trap_nodes)
+      del trap_nodes[:]
       with state.ctx_Option(self.mutable_opts, [option_i._running_trap], True):
         for trap_node in to_run:
           # Isolate the exit status.
