@@ -23,7 +23,7 @@ from frontend import reader
 from mycpp import mylib
 from mycpp.mylib import iteritems
 
-from typing import List, Dict, Optional, Any, TYPE_CHECKING
+from typing import List, Dict, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
   from _devbuild.gen.syntax_asdl import command_t
   from core.comp_ui import _IDisplay

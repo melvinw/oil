@@ -4,7 +4,6 @@ core/shell.py -- Entry point for the shell interpreter.
 from __future__ import print_function
 
 import errno
-import signal
 import time
 
 from _devbuild.gen import arg_types

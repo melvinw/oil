@@ -22,7 +22,6 @@ from core import main_loop
 from core import process
 from core.pyerror import e_usage, log
 unused1 = log
-from core import pyos
 from core import pyutil
 from core.pyutil import stderr_line
 from core import state
@@ -206,7 +205,7 @@ def Main(lang, arg_r, environ, login_shell, loader, line_input):
   # - no expression evaluator
   # - no interactive shell, or line_input
   # - no process.*
-  #   process.{ExternalProgram,Waiter,FdState,JobState,SignalState} -- we want
+  #   process.{ExternalProgram,Waiter,FdState,JobState,TrapState} -- we want
   #   to evaluate config files without any of these
   # Modules not translated yet: completion, comp_ui, builtin_comp, process
   # - word evaluator

@@ -269,13 +269,18 @@ class SignalHandler(object):
         # type: (int) -> None
         raise NotImplementedError()
 
+    # XXX: We could have done something like `lambda sig, unused: handler.Run(sig)`
+    # in Sigaction(), but that doesn't type check because lambda returns Any and
+    # signal.signal() expects a Callable that returns None (and for some reason
+    # we can't provide type hints for lambdas)
+    def __call__(self, sig_num, unused_frame):
+        # type: (int, Any) -> None
+        self.Run(sig_num)
+
 
 def Sigaction(sig_num, handler):
     # type: (int, Any) -> None
-    if isinstance(handler, SignalHandler):
-        signal.signal(sig_num, lambda sig_num, unused_frame: handler.Run(sig_num))
-    else:
-        signal.signal(sig_num, handler)
+    signal.signal(sig_num, handler)
 
 
 def ReserveHandlerCapacity(l):
