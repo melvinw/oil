@@ -43,7 +43,6 @@ EOF
   cat >$FILTER_DIR/filter-typecheck.txt <<'EOF'
 __init__.py
 typing.py
-core/completion.py
 mycpp/mylib.py
 osh/builtin_comp.py
 oil_lang/builtin_oil.py

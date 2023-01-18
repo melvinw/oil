@@ -31,12 +31,13 @@ if TYPE_CHECKING:
 from mycpp import mylib
 if mylib.PYTHON:
   # Hack because we don't want libcmark.so dependency for build/dev.sh minimal
+  HELP_TOPICS = [] #  type: List[str]
   try:
     from _devbuild.gen import help_
+    HELP_TOPICS = help_.TOPICS
   except ImportError:
-    class _DummyModule(object): pass
-    help_ = _DummyModule()
-    help_.TOPICS = []
+    pass
+
 
 
 def _DefineFlags(spec):
@@ -128,7 +129,7 @@ class _DynamicDictAction(completion.CompletionAction):
 
   def Matches(self, comp):
     # type: (Api) -> Iterator[str]
-    for name in sorted(self.d):
+    for name in sorted(self.d.keys()):
       if name.startswith(comp.to_complete):
         yield name
 
@@ -165,8 +166,8 @@ class SpecBuilder(object):
 
     # NOTE: bash doesn't actually check the name until completion time, but
     # obviously it's better to check here.
-    if arg.F:
-      func_name = arg.F
+    if arg.GetStr('F') is not None:
+      func_name = arg.GetStr('F')
       func = cmd_ev.procs.get(func_name)
       if func is None:
         raise error.Usage('Function %r not found' % func_name)
@@ -215,14 +216,16 @@ class SpecBuilder(object):
 
       elif name == 'helptopic':
         # Note: it would be nice to have 'helpgroup' for help -i too
-        a = _FixedWordsAction(help_.TOPICS)
+        a = _FixedWordsAction(HELP_TOPICS)
 
       elif name == 'setopt':
-        names = [opt.name for opt in option_def.All() if opt.builtin == 'set']
+        #names = [opt.name for opt in option_def.All() if opt.builtin == 'set']
+        names = [] # type: List[str]
         a = _FixedWordsAction(names)
 
       elif name == 'shopt':
-        names = [opt.name for opt in option_def.All() if opt.builtin == 'shopt']
+        #names = [opt.name for opt in option_def.All() if opt.builtin == 'shopt']
+        names = []
         a = _FixedWordsAction(names)
 
       elif name == 'signal':
@@ -237,12 +240,12 @@ class SpecBuilder(object):
       actions.append(a)
 
     # e.g. -W comes after -A directory
-    if arg.W is not None:  # could be ''
+    if arg.GetStr('W') is not None:  # could be ''
       # NOTES:
       # - Parsing is done at REGISTRATION time, but execution and splitting is
       #   done at COMPLETION time (when the user hits tab).  So parse errors
       #   happen early.
-      w_parser = self.parse_ctx.MakeWordParserForPlugin(arg.W)
+      w_parser = self.parse_ctx.MakeWordParserForPlugin(arg.GetStr('W'))
 
       try:
         arg_word = w_parser.ReadForPlugin()
@@ -269,14 +272,26 @@ class SpecBuilder(object):
       raise error.Usage('No actions defined in completion: %s' % argv)
 
     p = completion.DefaultPredicate()  # type: completion._Predicate
-    if arg.X:
-      filter_pat = arg.X
+    if arg.GetStr('X') is not None:
+      filter_pat = arg.GetStr('X')
       if filter_pat.startswith('!'):
         p = completion.GlobPredicate(False, filter_pat[1:])
       else:
         p = completion.GlobPredicate(True, filter_pat)
+
+    # mycpp: rewrite of or
+    prefix = arg.GetStr('P')
+    if prefix is None:
+      prefix = ''
+
+    # mycpp: rewrite of or
+    suffix = arg.GetStr('S')
+    if suffix is None:
+      suffix = ''
+
     return completion.UserSpec(actions, extra_actions, else_actions, p,
-                               prefix=arg.P or '', suffix=arg.S or '')
+                               prefix=prefix,
+                               suffix=suffix)
 
 
 if mylib.PYTHON:
@@ -314,12 +329,12 @@ class Complete(vm._Builtin):
 
     commands = arg_r.Rest()
 
-    if arg.D:
+    if arg.GetBool('D'):
       commands.append('__fallback')  # if the command doesn't match anything
-    if arg.E:
+    if arg.GetBool('E'):
       commands.append('__first')  # empty line
 
-    if not commands:
+    if len(commands) == 0:
       self.comp_lookup.PrintSpecs()
       return 0
 
@@ -477,10 +492,14 @@ class CompAdjust(vm._Builtin):
     # These are the ones from COMP_WORDBREAKS that we care about.  The rest occur
     # "outside" of words.
     break_chars = [':', '=']
-    if arg.s:  # implied
+    if arg.GetBool('s'):  # implied
       break_chars.remove('=')
     # NOTE: The syntax is -n := and not -n : -n =.
-    omit_chars = arg.n or ''
+    # mycpp: rewrite of or
+    omit_chars = arg.GetStr('n')
+    if omit_chars is None:
+        omit_chars = ''
+
     for c in omit_chars:
       if c in break_chars:
         break_chars.remove(c)
@@ -497,9 +516,12 @@ class CompAdjust(vm._Builtin):
     cur = adjusted_argv[-1]
     prev = '' if n < 2 else adjusted_argv[-2]
 
-    if arg.s:
+    if arg.GetBool('s'):
       if cur.startswith('--') and '=' in cur:  # Split into flag name and value
-        prev, cur = cur.split('=', 1)
+        # mycpp: rewrite of multiple-assignment
+        scur = cur.split('=', 1)
+        prev = scur[0]
+        cur = scur[1]
         split = 'true'
       else:
         split = 'false'

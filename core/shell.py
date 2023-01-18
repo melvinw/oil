@@ -75,24 +75,23 @@ if TYPE_CHECKING:
   from frontend.py_readline import Readline
 
 
-if mylib.PYTHON:
-  def _InitDefaultCompletions(cmd_ev, complete_builtin, comp_lookup):
-    # type: (cmd_eval.CommandEvaluator, builtin_comp.Complete, completion.Lookup) -> None
+def _InitDefaultCompletions(cmd_ev, complete_builtin, comp_lookup):
+  # type: (cmd_eval.CommandEvaluator, builtin_comp.Complete, completion.Lookup) -> None
 
-    # register builtins and words
-    complete_builtin.Run(shell_native.MakeBuiltinArgv(['-E', '-A', 'command']))
-    # register path completion
-    # Add -o filenames?  Or should that be automatic?
-    complete_builtin.Run(shell_native.MakeBuiltinArgv(['-D', '-A', 'file']))
+  # register builtins and words
+  complete_builtin.Run(shell_native.MakeBuiltinArgv(['-E', '-A', 'command']))
+  # register path completion
+  # Add -o filenames?  Or should that be automatic?
+  complete_builtin.Run(shell_native.MakeBuiltinArgv(['-D', '-A', 'file']))
 
-    # TODO: Move this into demo/slow-completion.sh
-    if 1:
-      # Something for fun, to show off.  Also: test that you don't repeatedly hit
-      # the file system / network / coprocess.
-      A1 = completion.TestAction(['foo.py', 'foo', 'bar.py'])
-      A2 = completion.TestAction(['m%d' % i for i in xrange(5)], delay=0.1)
-      C1 = completion.UserSpec([A1, A2], [], [], lambda candidate: True)
-      comp_lookup.RegisterName('slowc', {}, C1)
+  # TODO: Move this into demo/slow-completion.sh
+  if 1:
+    # Something for fun, to show off.  Also: test that you don't repeatedly hit
+    # the file system / network / coprocess.
+    A1 = completion.TestAction(['foo.py', 'foo', 'bar.py'])
+    A2 = completion.TestAction(['m%d' % i for i in xrange(5)], delay=0.1)
+    C1 = completion.UserSpec([A1, A2], [], [], completion.DefaultPredicate())
+    comp_lookup.RegisterName('slowc', {}, C1)
 
 
 def SourceStartupFile(fd_state, rc_path, lang, parse_ctx, cmd_ev, errfmt):
