@@ -36,7 +36,9 @@ from __future__ import print_function
 import time as time_
 
 from _devbuild.gen.id_kind_asdl import Id
-from _devbuild.gen.syntax_asdl import word_part_e, redir_param_e, Token
+from _devbuild.gen.syntax_asdl import (
+    compound_word, word_part_e, word_t, redir_param_e, Token
+)
 from _devbuild.gen.runtime_asdl import value_e, value__Str, value__MaybeStrArray, scope_e, Proc
 from _devbuild.gen.types_asdl import redir_arg_type_e
 from core import error
@@ -64,7 +66,6 @@ from typing import (
     Dict, Tuple, List, Iterator, Optional, Callable, Any, cast, TYPE_CHECKING
 )
 if TYPE_CHECKING:
-  from _devbuild.gen.syntax_asdl import Token, compound_word
   from core.comp_ui import State
   from core.state import Mem
   from frontend.py_readline import Readline
@@ -89,7 +90,10 @@ SHELL_META_CHARS = r' ~`!$&|;()\"*?[]{}<>' + "'"
 
 class _RetryCompletion(Exception):
   """For the 'exit 124' protocol."""
-  pass
+
+  def __init__(self):
+    # type: () -> None
+    pass
 
 
 # mycpp: rewrite of multiple-assignment
@@ -136,25 +140,124 @@ def AdjustArg(arg, break_chars, argv_out):
     begin = end
 
 
-class NullCompleter(object):
-
-  def __init__(self):
-    # type: () -> None
-    pass
-
-  def Matches(self, comp):
-    # type: (Api) -> Iterator[Tuple[str, bool]]
-    pass
-
-
 # NOTE: How to create temporary options?  With copy.deepcopy()?
 # We might want that as a test for OVM.  Copying is similar to garbage
 # collection in that you walk a graph.
 
 
+class UserSpec(object):
+  """The user configuration for completion.
+  
+  - The compgen builtin exposes this DIRECTLY.
+  - Readline must call ReadlineCallback, which uses RootCompleter.
+  """
+  def __init__(self,
+               actions,  # type: List[CompletionAction]
+               extra_actions,  # type: List[CompletionAction]
+               else_actions,  # type: List[CompletionAction]
+               predicate,  # type: _Predicate
+               prefix,  # type: str
+               suffix,  # type: str
+               ):
+    # type: (...) -> None
+    self.actions = actions
+    self.extra_actions = extra_actions
+    self.else_actions = else_actions
+    self.predicate = predicate  # for -X
+    self.prefix = prefix
+    self.suffix = suffix
+
+  def Matches(self, comp):
+    # type: (Api) -> Iterator[Tuple[str, bool]]
+    """Yield completion candidates."""
+    num_matches = 0
+
+    for a in self.actions:
+      is_fs_action = a.IsFileSystemAction()
+      for match in a.Matches(comp):
+        # Special case hack to match bash for compgen -F.  It doesn't filter by
+        # to_complete!
+        show = (
+            self.predicate.Evaluate(match) and
+            # ShellFuncAction results are NOT filtered by prefix!
+            (match.startswith(comp.to_complete) or a.IsShellFuncAction())
+        )
+
+        # There are two kinds of filters: changing the string, and filtering
+        # the set of strings.  So maybe have modifiers AND filters?  A triple.
+        if show:
+          yield self.prefix + match + self.suffix, is_fs_action
+          num_matches += 1
+
+    # NOTE: extra_actions and else_actions don't respect -X, -P or -S, and we
+    # don't have to filter by startswith(comp.to_complete).  They are all all
+    # FileSystemActions, which do it already.
+
+    # for -o plusdirs
+    for a in self.extra_actions:
+      for match in a.Matches(comp):
+        yield match, True  # We know plusdirs is a file system action
+
+    # for -o default and -o dirnames
+    if num_matches == 0:
+      for a in self.else_actions:
+        for match in a.Matches(comp):
+          yield match, True  # both are FileSystemAction
+
+    # What if the cursor is not at the end of line?  See readline interface.
+    # That's OK -- we just truncate the line at the cursor?
+    # Hm actually zsh does something smarter, and which is probably preferable.
+    # It completes the word that
+
+  def __str__(self):
+    # type: () -> str
+    parts = ['(UserSpec']
+    if mylib.PYTHON:
+      if len(self.actions) > 0:
+        parts.append(str(self.actions))
+      if len(self.extra_actions) > 0:
+        parts.append('extra=%s' % self.extra_actions)
+      if len(self.else_actions) > 0:
+        parts.append('else=%s' % self.else_actions)
+
+      parts.append('pred = %s' % self.predicate)
+
+      if self.prefix:
+        parts.append('prefix=%r' % self.prefix)
+      if self.suffix:
+        parts.append('suffix=%r' % self.suffix)
+
+    return ' '.join(parts) + ')'
+
+
+class _Predicate(object):
+
+  def __init__(self):
+    # type: () -> None
+    pass
+
+  def Evaluate(self, candidate):
+    # type: (str) -> bool
+    raise NotImplementedError()
+
+
+class DefaultPredicate(_Predicate):
+
+  def __init__(self):
+    # type: () -> None
+    pass
+
+  def Evaluate(self, candidate):
+    # type: (str) -> bool
+    return True
+
+
+NullCompleter = UserSpec([], [], [], DefaultPredicate(), '', '')
+
+
 # These values should never be mutated.
 _DEFAULT_OPTS = {}  # type: Dict[str, bool]
-_DO_NOTHING = (_DEFAULT_OPTS, NullCompleter())  # type: Tuple[Dict[str, bool], NullCompleter]
+_DO_NOTHING = (_DEFAULT_OPTS, NullCompleter)  # type: Tuple[Optional[Dict[str, bool]], UserSpec]
 
 
 class OptionState(object):
@@ -178,7 +281,7 @@ class Lookup(object):
     self.lookup = {
         '__fallback': _DO_NOTHING,
         '__first': _DO_NOTHING,
-    }  # type: Dict[str, Tuple[Dict[str, bool], UserSpec]]
+    }  # type: Dict[str, Tuple[Optional[Dict[str, bool]], UserSpec]]
 
     # for the 124 protocol
     self.commands_with_spec_changes = []  # type: List[str]
@@ -231,12 +334,16 @@ class Lookup(object):
     """
     pair = self.lookup.get(argv0)  # NOTE: Could be ''
     if pair:
-      return pair
+      # mycpp: rewrite of tuple return
+      a, b = pair
+      return (a, b)
 
     key = os_path.basename(argv0)
     pair = self.lookup.get(key)
     if pair:
-      return pair
+      # mycpp: rewrite of tuple return
+      a, b = pair
+      return (a, b)
 
     for glob_pat, base_opts, user_spec in self.patterns:
       #log('Matching %r %r', key, glob_pat)
@@ -247,11 +354,16 @@ class Lookup(object):
 
   def GetFirstSpec(self):
     # type: () -> Tuple[Dict[str, bool], UserSpec]
-    return self.lookup['__first']
+    # mycpp: rewrite of tuple return
+    a, b = self.lookup['__first']
+    return (a, b)
 
   def GetFallback(self):
     # type: () -> Tuple[Dict[str, bool], UserSpec]
-    return self.lookup['__fallback']
+    # mycpp: rewrite of tuple return
+    a, b = self.lookup['__fallback']
+    return (a, b)
+
 
 
 class Api(object):
@@ -273,8 +385,7 @@ class Api(object):
     # NOTE: COMP_WORDBREAKS is initialized in Mem().
 
   # NOTE: to_complete could be 'cur'
-  def Update(self, first='', to_complete='', prev='', index=0,
-             partial_argv=None):
+  def Update(self, first, to_complete, prev, index, partial_argv):
     # type: (str, str, str, int, List[str]) -> None
     """Added after we've done parsing."""
     self.first = first
@@ -310,6 +421,14 @@ class CompletionAction(object):
     # type: (Api) -> Iterator[str]
     pass
 
+  def IsFileSystemAction(self):
+    # type: () -> bool
+    return False
+
+  def IsShellFuncAction(self):
+    # type: () -> bool
+    return False
+
   def __repr__(self):
     # type: () -> str
     return self.__class__.__name__
@@ -317,6 +436,10 @@ class CompletionAction(object):
 
 class UsersAction(CompletionAction):
   """complete -A user"""
+
+  def __init__(self):
+    # type: () -> None
+    pass
 
   def Matches(self, comp):
     # type: (Api) -> Iterator[str]
@@ -327,7 +450,7 @@ class UsersAction(CompletionAction):
 
 
 class TestAction(CompletionAction):
-  def __init__(self, words, delay=None):
+  def __init__(self, words, delay):
     # type: (List[str], Optional[float]) -> None
     self.words = words
     self.delay = delay
@@ -376,7 +499,7 @@ class FileSystemAction(CompletionAction):
 
   Directories will have a / suffix.
   """
-  def __init__(self, dirs_only=False, exec_only=False, add_slash=False):
+  def __init__(self, dirs_only, exec_only, add_slash):
     # type: (bool, bool, bool) -> None
     self.dirs_only = dirs_only
     self.exec_only = exec_only
@@ -384,6 +507,10 @@ class FileSystemAction(CompletionAction):
     # This is for redirects, not for UserSpec, which should respect compopt -o
     # filenames.
     self.add_slash = add_slash  # for directories
+
+  def IsFileSystemAciton(self):
+    # type: () -> bool
+    return True
 
   def Matches(self, comp):
     # type: (Api) -> Iterator[str]
@@ -451,6 +578,10 @@ class ShellFuncAction(CompletionAction):
     self.cmd_ev = cmd_ev
     self.func = func
     self.comp_lookup = comp_lookup
+
+  def IsShellFuncAciton(self):
+    # type: () -> bool
+    return True
 
   def __repr__(self):
     # type: () -> str
@@ -588,9 +719,9 @@ class ExternalCommandAction(CompletionAction):
     if val.tag_() != value_e.Str:
       # No matches if not a string
       return
-    assert isinstance(val, value__Str)  # for MyPy
 
-    path_dirs = val.s.split(':')
+    val_s = cast(value__Str, val)
+    path_dirs = val_s.s.split(':')
     #log('path: %s', path_dirs)
 
     executables = []  # type: List[str]
@@ -624,19 +755,6 @@ class ExternalCommandAction(CompletionAction):
         yield word
 
 
-class _Predicate(object):
-  def __call__(self, candidate):
-    # type: (str) -> bool
-    raise NotImplementedError()
-
-
-class DefaultPredicate(_Predicate):
-
-  def __call__(self, candidate):
-    # type: (str) -> bool
-    return True
-
-
 class GlobPredicate(_Predicate):
   """Expand into files that match a pattern.  !*.py filters them.
 
@@ -651,7 +769,7 @@ class GlobPredicate(_Predicate):
     self.include = include  # True for inclusion, False for exclusion
     self.glob_pat = glob_pat  # extended glob syntax supported
 
-  def __call__(self, candidate):
+  def Evaluate(self, candidate):
     # type: (str) -> bool
     """Should we INCLUDE the candidate or not?"""
     matched = libc.fnmatch(self.glob_pat, candidate)
@@ -664,92 +782,6 @@ class GlobPredicate(_Predicate):
   def __repr__(self):
     # type: () -> str
     return '<GlobPredicate %s %r>' % (self.include, self.glob_pat)
-
-
-class UserSpec(object):
-  """The user configuration for completion.
-  
-  - The compgen builtin exposes this DIRECTLY.
-  - Readline must call ReadlineCallback, which uses RootCompleter.
-  """
-  def __init__(self,
-               actions,  # type: List[CompletionAction]
-               extra_actions,  # type: List[CompletionAction]
-               else_actions,  # type: List[CompletionAction]
-               predicate,  # type: _Predicate
-               prefix='',  # type: str
-               suffix='',  # type: str
-               ):
-    # type: (...) -> None
-    self.actions = actions
-    self.extra_actions = extra_actions
-    self.else_actions = else_actions
-    self.predicate = predicate  # for -X
-    self.prefix = prefix
-    self.suffix = suffix
-
-  def Matches(self, comp):
-    # type: (Api) -> Iterator[Tuple[str, bool]]
-    """Yield completion candidates."""
-    num_matches = 0
-
-    for a in self.actions:
-      is_fs_action = isinstance(a, FileSystemAction)
-      for match in a.Matches(comp):
-        # Special case hack to match bash for compgen -F.  It doesn't filter by
-        # to_complete!
-        show = (
-            self.predicate(match) and
-            # ShellFuncAction results are NOT filtered by prefix!
-            (match.startswith(comp.to_complete) or
-             isinstance(a, ShellFuncAction))
-        )
-
-        # There are two kinds of filters: changing the string, and filtering
-        # the set of strings.  So maybe have modifiers AND filters?  A triple.
-        if show:
-          yield self.prefix + match + self.suffix, is_fs_action
-          num_matches += 1
-
-    # NOTE: extra_actions and else_actions don't respect -X, -P or -S, and we
-    # don't have to filter by startswith(comp.to_complete).  They are all all
-    # FileSystemActions, which do it already.
-
-    # for -o plusdirs
-    for a in self.extra_actions:
-      for match in a.Matches(comp):
-        yield match, True  # We know plusdirs is a file system action
-
-    # for -o default and -o dirnames
-    if num_matches == 0:
-      for a in self.else_actions:
-        for match in a.Matches(comp):
-          yield match, True  # both are FileSystemAction
-
-    # What if the cursor is not at the end of line?  See readline interface.
-    # That's OK -- we just truncate the line at the cursor?
-    # Hm actually zsh does something smarter, and which is probably preferable.
-    # It completes the word that
-
-  def __str__(self):
-    # type: () -> str
-    parts = ['(UserSpec']
-    if mylib.PYTHON:
-      if len(self.actions) > 0:
-        parts.append(str(self.actions))
-      if len(self.extra_actions) > 0:
-        parts.append('extra=%s' % self.extra_actions)
-      if len(self.else_actions) > 0:
-        parts.append('else=%s' % self.else_actions)
-
-      parts.append('pred = %s' % self.predicate)
-
-      if self.prefix:
-        parts.append('prefix=%r' % self.prefix)
-      if self.suffix:
-        parts.append('suffix=%r' % self.suffix)
-
-    return ' '.join(parts) + ')'
 
 
 # Helpers for Matches()
@@ -840,7 +872,7 @@ class RootCompleter(CompletionAction):
 
     debug_f = self.debug_f
     trail = self.parse_ctx.trail
-    if 1:
+    if mylib.PYTHON:
       trail.PrintDebugString(debug_f)
 
     #
@@ -937,8 +969,8 @@ class RootCompleter(CompletionAction):
       if (len(parts) == 2 and
           parts[0].tag_() == word_part_e.Literal and
           parts[1].tag_() == word_part_e.Literal and
-          cast(glob_part__Literal, parts[0]).id == Id.Lit_TildeLike and
-          cast(glob_part__Literal, parts[1]).id == Id.Lit_CompDummy):
+          cast(Token, parts[0]).id == Id.Lit_TildeLike and
+          cast(Token, parts[1]).id == Id.Lit_CompDummy):
         tok = cast(Token, parts[0])
 
         # +1 for ~
@@ -946,7 +978,8 @@ class RootCompleter(CompletionAction):
 
         to_complete = tok.val[1:]
         n = len(to_complete)
-        for name in pyos.GetAllUserNames():  # catch errors?
+        for u in pyos.GetAllUsers():  # catch errors?
+          name = u.pw_name
           if name.startswith(to_complete):
             s = line_until_tab + ShellQuoteB(name[n:]) + '/'
             yield s
@@ -960,11 +993,13 @@ class RootCompleter(CompletionAction):
       if (r.arg.tag_() == redir_param_e.Word and
           consts.RedirArgType(r.op.id) == redir_arg_type_e.Path):
         arg_word = r.arg
-        if WordEndsWithCompDummy(cast(compound_word, arg_word)):
+        UP_word = arg_word
+        arg_word = cast(compound_word, UP_word)
+        if WordEndsWithCompDummy(arg_word):
           debug_f.log('Completing redirect arg')
 
           try:
-            val = self.word_ev.EvalWordToString(cast(word_t, r.arg))
+            val = self.word_ev.EvalWordToString(arg_word)
           except error.FatalRuntime as e:
             debug_f.log('Error evaluating redirect word: %s' % e)
             return
@@ -972,14 +1007,14 @@ class RootCompleter(CompletionAction):
             debug_f.log("Didn't get a string from redir arg")
             return
 
-          span_id = word_.LeftMostSpanForWord(cast(word_t, arg_word))
+          span_id = word_.LeftMostSpanForWord(arg_word)
           span = arena.GetLineSpan(span_id)
 
           self.comp_ui_state.display_pos = span.col
 
-          comp.Update(to_complete=val.s)  # FileSystemAction uses only this
+          comp.Update('', val.s, '', 0, [])
           n = len(val.s)
-          action = FileSystemAction(add_slash=True)
+          action = FileSystemAction(False, False, True)
           for name in action.Matches(comp):
             yield line_until_tab + ShellQuoteB(name[n:])
           return
@@ -990,13 +1025,13 @@ class RootCompleter(CompletionAction):
     #
 
     # Set below, and set on retries.
-    base_opts = None
-    user_spec = None
+    base_opts = None # type: Dict[str, bool]
+    user_spec = None # type: Optional[UserSpec]
 
     # Used on retries.
     partial_argv = [] # type: List[str]
     num_partial = -1
-    first = None
+    first = None # type: str
 
     if len(trail.words) > 0:
       # Now check if we're completing a word!
@@ -1038,7 +1073,7 @@ class RootCompleter(CompletionAction):
         num_partial = len(partial_argv)
 
         first = partial_argv[0]
-        alias_first = None
+        alias_first = None # type: str
         # XXX debug_f.log('alias_words: [%s]' % ','.join(trail.alias_words))
 
         if len(trail.alias_words) > 0:
@@ -1086,8 +1121,7 @@ class RootCompleter(CompletionAction):
         # Update the API for user-defined functions.
         index = len(partial_argv) - 1  # COMP_CWORD is -1 when it's empty
         prev = '' if index == 0 else partial_argv[index-1]
-        comp.Update(first=first, to_complete=partial_argv[-1],
-                    prev=prev, index=index, partial_argv=partial_argv) 
+        comp.Update(first, partial_argv[-1], prev, index, partial_argv) 
 
     # This happens in the case of [[ and ((, or a syntax error like 'echo < >'.
     if not user_spec:
@@ -1274,7 +1308,7 @@ class ReadlineCallback(object):
       # So this may never happen?
       stderr_line('Ctrl-C in completion')
     except Exception as e:  # ESSENTIAL because readline swallows exceptions.
-      if 1:
+      if mylib.PYTHON:
         import traceback
         traceback.print_exc()
       stderr_line('osh: Unhandled exception while completing: %s', e)

@@ -242,6 +242,11 @@ TEST test_list_iters() {
     log("x = %d", x);
   }
 
+  log("  forward iteration over nul");
+  ListIter<int> it(nullptr);
+  ASSERT(it.Done());
+
+
   log("  backward iteration over list");
   for (ReverseListIter<int> it(ints); !it.Done(); it.Next()) {
     int x = it.Value();

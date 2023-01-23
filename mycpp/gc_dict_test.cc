@@ -235,6 +235,24 @@ TEST test_empty_dict() {
   PASS();
 }
 
+TEST test_tuple_key() {
+  auto d = Alloc<Dict<Tuple2<int, int>*, int>>();
+
+  auto t1 = Alloc<Tuple2<int, int>>(0xdead, 0xbeef);
+  auto t2 = Alloc<Tuple2<int, int>>(0xbeee, 0xeeef);
+  d->set(t1, -42);
+  d->set(t2, 17);
+
+  ASSERT_EQ(d->index_(t1), -42);
+  ASSERT_EQ(d->index_(t2), 17);
+
+  PASS();
+}
+
+TEST test_tuple_construct() {
+  PASS();
+}
+
 GREATEST_MAIN_DEFS();
 
 int main(int argc, char** argv) {
@@ -245,6 +263,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_dict);
   RUN_TEST(test_dict_internals);
   RUN_TEST(test_empty_dict);
+  RUN_TEST(test_tuple_key);
+  RUN_TEST(test_tuple_construct);
 
   gHeap.CleanProcessExit();
 

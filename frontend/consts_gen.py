@@ -297,6 +297,8 @@ namespace consts {
       for name in LIST_INT:
         out('extern List<int>* %s;', name)
 
+      out('extern List<Str*>* BUILTIN_NAMES;')
+
       out("""\
 
 extern int NO_INDEX;
@@ -496,6 +498,14 @@ Tuple2<state_t, emit_t> IfsEdge(state_t state, runtime_asdl::char_kind_t ch) {
   return Tuple2<state_t, emit_t>(new_state, emit);
 }
 """)
+
+      builtin_globals = []
+      for i, name in enumerate(consts.BUILTIN_NAMES):
+          global_name = "kBuiltin%d" % i
+          out('GLOBAL_STR(%s, "%s");', global_name, name)
+          builtin_globals.append(global_name)
+      builtins_lit = ' COMMA '.join(builtin_globals)
+      out('GLOBAL_LIST(Str*, %d, BUILTIN_NAMES, {%s});', len(consts.BUILTIN_NAMES), builtins_lit)
 
       out("""\
 }  // namespace consts

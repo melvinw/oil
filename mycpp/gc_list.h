@@ -68,6 +68,8 @@ class List {
   // TODO: Don't accept an arbitrary index?
   T pop(int i);
 
+  void remove(T x);
+
   void clear();
 
   // Used in osh/string_ops.py
@@ -173,6 +175,9 @@ class Dict;  // forward decl
 
 template <typename V>
 List<Str*>* sorted(Dict<Str*, V>* d);
+
+template <typename T>
+List<T*>* sorted(List<T*>* l);
 
 // L[begin:]
 // TODO: Implement this in terms of slice(begin, end)
@@ -315,6 +320,19 @@ T List<T>::pop(int i) {
 }
 
 template <typename T>
+void List<T>::remove(T x) {
+  int element_count = len(this);
+  for (int i = 0; i < element_count; i++) {
+    if (are_equal(slab_->items_[i], x)) {
+      len_--;
+      // Shift everything by i
+      memmove(slab_->items_, slab_->items_ + i, len_ * sizeof(T));
+      return;
+    }
+  }
+}
+
+template <typename T>
 void List<T>::clear() {
   memset(slab_->items_, 0, len_ * sizeof(T));  // zero for GC scan
   len_ = 0;
@@ -396,6 +414,13 @@ List<Str*>* sorted(Dict<Str*, V>* d) {
   return keys;
 }
 
+template <typename T>
+List<T*>* sorted(List<T*>* l) {
+  auto ret = list(l);
+  ret->sort();
+  return ret;
+}
+
 // list(L) copies the list
 template <typename T>
 List<T>* list(List<T>* other) {
@@ -403,6 +428,7 @@ List<T>* list(List<T>* other) {
   result->extend(other);
   return result;
 }
+
 
 #define GLOBAL_LIST(T, N, name, array)                               \
   GlobalSlab<T, N> _slab_##name = {                                  \
@@ -417,10 +443,13 @@ List<T>* list(List<T>* other) {
 template <class T>
 class ListIter {
  public:
+  ListIter() : L_(nullptr), i_(0) {}
+
   explicit ListIter(List<T>* L) : L_(L), i_(0) {
     // Cheney only: L_ could be moved during iteration.
     // gHeap.PushRoot(reinterpret_cast<RawObject**>(&L_));
   }
+
   ~ListIter() {
     // gHeap.PopRoot();
   }
@@ -429,9 +458,10 @@ class ListIter {
   }
   bool Done() {
     // "unsigned size_t was a mistake"
-    return i_ >= static_cast<int>(L_->len_);
+    return L_ == nullptr || i_ >= static_cast<int>(L_->len_);
   }
   T Value() {
+    DCHECK(L_ != nullptr);
     return L_->slab_->items_[i_];
   }
   T iterNext() {
@@ -454,6 +484,7 @@ class ReverseListIter {
  public:
   explicit ReverseListIter(List<T>* L) : L_(L), i_(L_->len_ - 1) {
   }
+  ReverseListIter() : L_(nullptr), i_(-1) {}
   void Next() {
     i_--;
   }
@@ -461,6 +492,7 @@ class ReverseListIter {
     return i_ < 0;
   }
   T Value() {
+    DCHECK(L_ != nullptr);
     return L_->slab_->items_[i_];
   }
 

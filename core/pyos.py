@@ -216,20 +216,6 @@ def GetUserName(uid):
     return e.pw_name
 
 
-class PasswdEntry(object):
-  def __init__(self, pw_name, uid, gid):
-    # type: (str, int, int) -> None
-    self.pw_name = pw_name
-    self.pw_uid = uid
-    self.pw_gid = gid
-
-
-def GetAllUserNames():
-  # type: () -> List[str]
-  users = [PasswdEntry(u.pw_name, u.pw_uid, u.pw_gid) for u in pwd.getpwall()]
-  return users
-
-
 def Time():
   # type: () -> Tuple[float, float, float]
   t = time.time()  # calls gettimeofday() under the hood

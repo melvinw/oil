@@ -1464,7 +1464,14 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
           self.write_ind('')
           self.accept(lval)
           self.write(' = ')
-          self.accept(o.rvalue)
+          lval_type = self.types[lval]
+          # treat None as Iterator<T>(nullptr)
+          if isinstance(lval_type, Instance) and lval_type.type.fullname == 'typing.Iterator' and isinstance(o.rvalue, NameExpr) and o.rvalue.name == 'None':
+            assert len(lval_type.args) == 1, lval_type.args
+            c_type = get_c_type(lval_type)
+            self.write('%s(nullptr)', c_type)
+          else:
+            self.accept(o.rvalue)
           self.write(';\n')
 
           if self.current_method_name in ('__init__', 'Reset'):

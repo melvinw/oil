@@ -88,9 +88,13 @@ def _InitDefaultCompletions(cmd_ev, complete_builtin, comp_lookup):
   if 1:
     # Something for fun, to show off.  Also: test that you don't repeatedly hit
     # the file system / network / coprocess.
-    A1 = completion.TestAction(['foo.py', 'foo', 'bar.py'])
-    A2 = completion.TestAction(['m%d' % i for i in xrange(5)], delay=0.1)
-    C1 = completion.UserSpec([A1, A2], [], [], completion.DefaultPredicate())
+    A1 = completion.TestAction(['foo.py', 'foo', 'bar.py'], 0.0)
+    l = [] # type: List[str]
+    for i in xrange(0, 5):
+        l.append('m%d' % i)
+
+    A2 = completion.TestAction(l, 0.1)
+    C1 = completion.UserSpec([A1, A2], [], [], completion.DefaultPredicate(), '', '')
     comp_lookup.RegisterName('slowc', {}, C1)
 
 
