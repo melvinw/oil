@@ -35,7 +35,7 @@ from frontend import flag_def  # side effect: flags are defined!
 _ = flag_def
 from frontend import flag_spec
 from frontend import reader
-from frontend import py_reader
+from frontend import reader
 from frontend import parse_lib
 
 from oil_lang import expr_eval
@@ -510,11 +510,8 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
 
   elif flag.i:  # force interactive
     src = source.Stdin(' -i')
-    if mylib.PYTHON:
-      line_reader = py_reader.InteractiveLineReader(
-          arena, prompt_ev, hist_ev, readline, prompt_state)
-    else:
-      line_reader = None
+    line_reader = reader.InteractiveLineReader(
+        arena, prompt_ev, hist_ev, readline, prompt_state)
     mutable_opts.set_interactive()
 
   else:
@@ -527,11 +524,8 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
         stdin = mylib.Stdin()
         if stdin.isatty():
           src = source.Interactive()
-          if mylib.PYTHON:
-            line_reader = py_reader.InteractiveLineReader(
-                arena, prompt_ev, hist_ev, readline, prompt_state)
-          else:
-            line_reader = None
+          line_reader = reader.InteractiveLineReader(
+              arena, prompt_ev, hist_ev, readline, prompt_state)
           mutable_opts.set_interactive()
         else:
           src = source.Stdin('')
@@ -603,6 +597,7 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
 
     return status
 
+  history_filename = os_path.join(home_dir, '.config/oil/history_%s' % lang)
   if exec_opts.interactive():
     state.InitInteractive(mem)
     # bash: 'set -o emacs' is the default only in the interactive shell
@@ -611,37 +606,35 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
     mutable_opts.set_redefine_module()
 
     if readline:
-      if mylib.PYTHON:
-        # NOTE: We're using a different WordEvaluator here.
-        ev = word_eval.CompletionWordEvaluator(mem, exec_opts, mutable_opts,
-                                               splitter, errfmt)
+      # NOTE: We're using a different WordEvaluator here.
+      ev = word_eval.CompletionWordEvaluator(mem, exec_opts, mutable_opts,
+                                             splitter, errfmt)
 
-        ev.arith_ev = arith_ev
-        ev.expr_ev = expr_ev
-        ev.prompt_ev = prompt_ev
-        ev.CheckCircularDeps()
+      ev.arith_ev = arith_ev
+      ev.expr_ev = expr_ev
+      ev.prompt_ev = prompt_ev
+      ev.CheckCircularDeps()
 
-        root_comp = completion.RootCompleter(ev, mem, comp_lookup, compopt_state,
-                                             comp_ui_state, comp_ctx, debug_f)
+      root_comp = completion.RootCompleter(ev, mem, comp_lookup, compopt_state,
+                                           comp_ui_state, comp_ctx, debug_f)
 
-        term_width = 0
-        if flag.completion_display == 'nice':
-          try:
-            term_width = libc.get_terminal_width()
-          except IOError:  # stdin not a terminal
-            pass
+      term_width = 0
+      if flag.completion_display == 'nice':
+        try:
+          term_width = libc.get_terminal_width()
+        except IOError:  # stdin not a terminal
+          pass
 
-        if term_width != 0:
-          display = comp_ui.NiceDisplay(term_width, comp_ui_state, prompt_state,
-                                        debug_f, readline)  # type: comp_ui._IDisplay
-        else:
-          display = comp_ui.MinimalDisplay(comp_ui_state, prompt_state, debug_f)
+      if term_width != 0:
+        display = comp_ui.NiceDisplay(term_width, comp_ui_state, prompt_state,
+                                      debug_f, readline)  # type: comp_ui._IDisplay
+      else:
+        display = comp_ui.MinimalDisplay(comp_ui_state, prompt_state, debug_f)
 
-        history_filename = os_path.join(home_dir, '.config/oil/history_%s' % lang)
-        comp_ui.InitReadline(readline, history_filename, root_comp, display,
-                             debug_f)
+      comp_ui.InitReadline(readline, history_filename, root_comp, display,
+                           debug_f)
 
-        _InitDefaultCompletions(cmd_ev, complete_builtin, comp_lookup)
+      _InitDefaultCompletions(cmd_ev, complete_builtin, comp_lookup)
 
     else:  # Without readline module
       display = comp_ui.MinimalDisplay(comp_ui_state, prompt_state, debug_f)
@@ -694,6 +687,12 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
     box = [status]
     cmd_ev.MaybeRunExitTrap(box)
     status = box[0]
+
+  if readline:
+    try:
+      readline.write_history_file(history_filename)
+    except IOError:
+      pass
 
   # NOTE: We haven't closed the file opened with fd_state.Open
   return status
