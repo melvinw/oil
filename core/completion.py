@@ -110,17 +110,29 @@ ST_Break = 1
 ST_Other = 2
 
 # State machine definition.
-_TRANSITIONS = {
-    # (state, char) -> (new state, emit span)
-    (ST_Begin, CH_Break): (ST_Break, False),
-    (ST_Begin, CH_Other): (ST_Other, False),
+# (state, char) -> (new state, emit span)
+def _TRANSITIONS(state, ch):
+  # type: (int, int) -> Tuple[int, bool]
+  if state == ST_Begin and ch == CH_Break:
+    return (ST_Break, False)
 
-    (ST_Break, CH_Break): (ST_Break, False),
-    (ST_Break, CH_Other): (ST_Other, True),
+  if state == ST_Begin and ch == CH_Other:
+    return (ST_Other, False)
 
-    (ST_Other, CH_Break): (ST_Break, True),
-    (ST_Other, CH_Other): (ST_Other, False),
-}
+  if state == ST_Break and ch == CH_Break:
+    return (ST_Break, False)
+
+  if state == ST_Break and ch == CH_Other:
+    return (ST_Other, True)
+
+  if state == ST_Other and ch == CH_Break:
+    return (ST_Break, True)
+
+  if state == ST_Other and ch == CH_Other:
+    return (ST_Other, False)
+
+  raise ValueError("invalid (state, ch) pair")
+
 
 def AdjustArg(arg, break_chars, argv_out):
   # type: (str, List[str], List[str]) -> None
@@ -129,7 +141,7 @@ def AdjustArg(arg, break_chars, argv_out):
   state = ST_Begin
   for i, c in enumerate(arg):
     ch = CH_Break if c in break_chars else CH_Other
-    state, emit_span = _TRANSITIONS[state, ch]
+    state, emit_span = _TRANSITIONS(state, ch)
     if emit_span:
       end_indices.append(i)
 
