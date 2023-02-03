@@ -662,6 +662,12 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
     cmd_ev.MaybeRunExitTrap(box)
     status = box[0]
 
+    if readline:
+      try:
+        readline.write_history_file(history_filename)
+      except IOError:
+        pass
+
     return status
 
   if flag.rcfile is not None:  # bash doesn't have this warning, but it's useful
@@ -687,12 +693,6 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
     box = [status]
     cmd_ev.MaybeRunExitTrap(box)
     status = box[0]
-
-  if readline:
-    try:
-      readline.write_history_file(history_filename)
-    except IOError:
-      pass
 
   # NOTE: We haven't closed the file opened with fd_state.Open
   return status
