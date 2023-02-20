@@ -1045,8 +1045,15 @@ class Pipeline(Job):
   def Add(self, p):
     # type: (Process) -> None
     """Append a process to the pipeline."""
-    if len(self.procs) == 0:
+    # RunSimpleCommand() might call this with an already running process (the
+    # last one in this pipeline). If this happens, we don't need to do any of
+    # the pipe prep below, since it was already done in Run()
+    if len(self.procs) == 0 or p.pid != -1:
       self.procs.append(p)
+      if p.pid != -1:
+        self.pids.append(p.pid)
+        self.pipe_status.append(-1)
+
       return
 
     r, w = posix.pipe()

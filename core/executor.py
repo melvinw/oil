@@ -26,7 +26,7 @@ from frontend import location
 
 import posix_ as posix
 
-from typing import cast, Dict, List, TYPE_CHECKING
+from typing import cast, Dict, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
   from _devbuild.gen.runtime_asdl import (
       cmd_value__Argv, CommandStatus, StatusArray, Proc
@@ -84,6 +84,7 @@ class ShellExecutor(vm._Executor):
     self.fd_state = fd_state
     self.errfmt = errfmt
     self.process_sub_stack = []  # type: List[_ProcessSubFrame]
+    self.pipeline = None  # type: Optional[process.Pipeline]
 
   def CheckCircularDeps(self):
     # type: () -> None
@@ -247,7 +248,13 @@ class ShellExecutor(vm._Executor):
     if do_fork:
       thunk = process.ExternalThunk(self.ext_prog, argv0_path, cmd_val, environ)
       p = process.Process(thunk, self.job_state, self.tracer)
-      status = p.RunWait(self.waiter, trace.External(cmd_val.argv))
+      if self.pipeline is not None:
+        p.Init_ParentPipeline(self.pipeline)
+        p.Start(trace.External(cmd_val.argv))
+        self.pipeline.Add(p)
+        status = p.Wait(self.waiter)
+      else:
+        status = p.RunWait(self.waiter, trace.External(cmd_val.argv))
 
       # this is close to a "leaf" for errors
       # problem: permission denied EACCESS prints duplicate messages
@@ -326,8 +333,11 @@ class ShellExecutor(vm._Executor):
     pi.AddLast((self.cmd_ev, last_child))
     status_out.pipe_spids.append(location.SpanForCommand(last_child))
 
+    self.pipeline = pi
     with dev.ctx_Tracer(self.tracer, 'pipeline', None):
       status_out.pipe_status = pi.Run(self.waiter, self.fd_state)
+
+    self.pipeline = None
 
   def RunSubshell(self, node):
     # type: (command_t) -> int
