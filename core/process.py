@@ -840,6 +840,14 @@ class Process(Job):
     #return '<Process %s%s>' % (self.thunk, s)
     return '<Process %s %s>' % (_JobStateStr(self.state), self.thunk)
 
+  def GroupId(self):
+    # type: () -> int
+    """Returns -1 if this process or its parent pipeline hasn't been started."""
+    if self.parent_pipeline is not None:
+      return self.parent_pipeline.group_id
+
+    return self.pid
+
   def DisplayJob(self, job_id, f, style):
     # type: (int, mylib.Writer, int) -> None
     if job_id == -1:
@@ -885,6 +893,7 @@ class Process(Job):
     #
     # The whole job control mechanism is complicated and hacky.
 
+    pgrp = self.GroupId()
     pid = posix.fork()
     if pid < 0:
       # When does this happen?
@@ -894,6 +903,10 @@ class Process(Job):
       # Note: this happens in BOTH interactive and non-interactive shells.
       # We technically don't need to do most of it in non-interactive, since we
       # did not change state in InitInteractiveShell().
+      if pgrp == -1:
+        pgrp = pid
+
+      posix.setpgid(pid, pgrp)
 
       # Python sets SIGPIPE handler to SIG_IGN by default.  Child processes
       # shouldn't have this.
@@ -919,6 +932,13 @@ class Process(Job):
       self.tracer.SetProcess(posix.getpid())
       self.thunk.Run()
       # Never returns
+
+    # We call setpgid() in the both the parent and child to avoid racing on group
+    # membership below.
+    if pgrp == -1:
+      pgrp = pid
+
+    posix.setpgid(pid, pgrp)
 
     #log('STARTED process %s, pid = %d', self, pid)
     self.tracer.OnProcessStart(pid, why)
@@ -1009,6 +1029,7 @@ class Pipeline(Job):
     self.pids = []  # type: List[int]  # pids in order
     self.pipe_status = []  # type: List[int]  # status in order
     self.status = -1  # for 'wait' jobs
+    self.group_id = -1  # for job control signals
 
     # Optional for foreground
     self.last_thunk = None  # type: Tuple[CommandEvaluator, command_t]
@@ -1052,7 +1073,6 @@ class Pipeline(Job):
       self.procs.append(p)
       if p.pid != -1:
         self.pids.append(p.pid)
-        self.pipe_status.append(-1)
 
       return
 
@@ -1094,6 +1114,11 @@ class Pipeline(Job):
 
     for i, proc in enumerate(self.procs):
       pid = proc.Start(trace.PipelinePart())
+      if i == 0:
+        # Mimick bash and use the PID of the first process as the group for the
+        # whole pipeline.
+        self.group_id = pid
+
       self.pids.append(pid)
       self.pipe_status.append(-1)  # uninitialized
 
