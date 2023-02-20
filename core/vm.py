@@ -10,7 +10,7 @@ from _devbuild.gen.syntax_asdl import Token
 from core.pyerror import log
 from core import pyos
 
-from typing import List, Any, TYPE_CHECKING
+from typing import List, Any, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
   from _devbuild.gen.runtime_asdl import (
       cmd_value__Argv, cmd_value__Assign, redirect
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
   from _devbuild.gen.syntax_asdl import (
       command_t, command__Pipeline, command_sub
   )
+  from core import process
   from osh import sh_expr_eval
   from osh.sh_expr_eval import ArithEvaluator
   from osh.sh_expr_eval import BoolEvaluator
@@ -152,6 +153,7 @@ class _Executor(object):
   def __init__(self):
     # type: () -> None
     self.cmd_ev = None  # type: CommandEvaluator
+    self.pipeline = None  # type: Optional[process.Pipeline]
 
   def CheckCircularDeps(self):
     # type: () -> None

@@ -26,7 +26,7 @@ from frontend import location
 
 import posix_ as posix
 
-from typing import cast, Dict, List, Optional, TYPE_CHECKING
+from typing import cast, Dict, List, TYPE_CHECKING
 if TYPE_CHECKING:
   from _devbuild.gen.runtime_asdl import (
       cmd_value__Argv, CommandStatus, StatusArray, Proc
@@ -84,7 +84,6 @@ class ShellExecutor(vm._Executor):
     self.fd_state = fd_state
     self.errfmt = errfmt
     self.process_sub_stack = []  # type: List[_ProcessSubFrame]
-    self.pipeline = None  # type: Optional[process.Pipeline]
 
   def CheckCircularDeps(self):
     # type: () -> None
@@ -249,9 +248,11 @@ class ShellExecutor(vm._Executor):
       thunk = process.ExternalThunk(self.ext_prog, argv0_path, cmd_val, environ)
       p = process.Process(thunk, self.job_state, self.tracer)
       if self.pipeline is not None:
-        p.Init_ParentPipeline(self.pipeline)
+        pi = self.pipeline
+        self.pipeline = None
+        p.Init_ParentPipeline(pi)
         p.Start(trace.External(cmd_val.argv))
-        self.pipeline.Add(p)
+        pi.Add(p)
         status = p.Wait(self.waiter)
       else:
         status = p.RunWait(self.waiter, trace.External(cmd_val.argv))
@@ -287,7 +288,7 @@ class ShellExecutor(vm._Executor):
 
     if UP_node.tag_() == command_e.Pipeline:
       node = cast(command__Pipeline, UP_node)
-      pi = process.Pipeline(self.exec_opts.sigpipe_status_ok())
+      pi = process.Pipeline(self.exec_opts.sigpipe_status_ok(), self.job_state)
       for child in node.children:
         p = self._MakeProcess(child)
         p.Init_ParentPipeline(pi)
@@ -313,7 +314,7 @@ class ShellExecutor(vm._Executor):
   def RunPipeline(self, node, status_out):
     # type: (command__Pipeline, CommandStatus) -> None
 
-    pi = process.Pipeline(self.exec_opts.sigpipe_status_ok())
+    pi = process.Pipeline(self.exec_opts.sigpipe_status_ok(), self.job_state)
     self.job_state.AddPipeline(pi)
 
     # First n-1 processes (which is empty when n == 1)
@@ -333,11 +334,8 @@ class ShellExecutor(vm._Executor):
     pi.AddLast((self.cmd_ev, last_child))
     status_out.pipe_spids.append(location.SpanForCommand(last_child))
 
-    self.pipeline = pi
     with dev.ctx_Tracer(self.tracer, 'pipeline', None):
       status_out.pipe_status = pi.Run(self.waiter, self.fd_state)
-
-    self.pipeline = None
 
   def RunSubshell(self, node):
     # type: (command_t) -> int
