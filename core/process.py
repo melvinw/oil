@@ -1217,11 +1217,14 @@ class Pipeline(Job):
       r, w = self.last_pipe  # set in AddLast()
       posix.close(w)  # we will not write here
 
-      cmd_ev.shell_ex.pipeline = self
+      if self.job_state.JobControlEnabled():
+        cmd_ev.shell_ex.pipeline = self
+
       with ctx_Pipe(fd_state, r):
         cmd_ev.ExecuteAndCatch(last_node)
 
-      cmd_ev.shell_ex.pipeline = None
+      if self.job_state.JobControlEnabled():
+        cmd_ev.shell_ex.pipeline = None
 
       # We won't read anymore.  If we don't do this, then 'cat' in 'cat
       # /dev/urandom | sleep 1' will never get SIGPIPE.
