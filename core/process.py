@@ -912,7 +912,8 @@ class Process(Job):
       # We technically don't need to do most of it in non-interactive, since we
       # did not change state in InitInteractiveShell().
       pid = posix.getpid()
-      _setpgid(pid, pgrp)
+      if self.job_state.JobControlEnabled():
+        _setpgid(pid, pgrp)
 
       # Python sets SIGPIPE handler to SIG_IGN by default.  Child processes
       # shouldn't have this.
@@ -942,7 +943,8 @@ class Process(Job):
 
     # We call setpgid() in the the parent and child to avoid racing on group
     # membership in GiveTerminal() if the child wakes up first.
-    _setpgid(pid, pgrp)
+    if self.job_state.JobControlEnabled():
+      _setpgid(pid, pgrp)
 
     #log('STARTED process %s, pid = %d', self, pid)
     self.tracer.OnProcessStart(pid, why)
@@ -1314,19 +1316,38 @@ class JobState(object):
 
     self.shell_pgrp = -1
     self.shell_tty_fd = -1
+    self.original_tty_pgrp = -1
 
   def InitJobControl(self):
     # type: () -> None
-    self.shell_pgrp = posix.getpgid(0)
+    pid = posix.getpid()
+    orig_shell_pgrp = posix.getpgid(0)
+    self.shell_pgrp = orig_shell_pgrp
     self.shell_tty_fd = GetTtyFd()
 
-    # If stdio is a TTY, put the shell's process group in the foreground.
-    try:
-      posix.tcsetpgrp(self.shell_tty_fd, self.shell_pgrp)
-    except OSError as e:
-      # We probably aren't in the session leader's process group. Disable job
-      # control.
-      self.shell_tty_fd = -1
+    if self.shell_pgrp != pid:
+      try:
+        posix.setpgid(pid, pid)
+        self.shell_pgrp = pid
+      except OSError as e:
+        self.shell_tty_fd = -1
+
+    if self.shell_tty_fd != -1:
+      self.original_tty_pgrp = posix.tcgetpgrp(self.shell_tty_fd)
+
+      # If stdio is a TTY, put the shell's process group in the foreground.
+      try:
+        posix.tcsetpgrp(self.shell_tty_fd, self.shell_pgrp)
+      except OSError as e:
+        # We probably aren't in the session leader's process group. Disable job
+        # control.
+        self.shell_tty_fd = -1
+        self.shell_pgrp = orig_shell_pgrp
+        posix.setpgid(pid, self.shell_pgrp)
+
+  def JobControlEnabled(self):
+    # type: () -> bool
+    return self.shell_tty_fd != -1
 
   # TODO: This isn't a PID.  This is a process group ID?
   #
@@ -1344,7 +1365,7 @@ class JobState(object):
   def GiveTerminal(self, pgrp):
     # type: (int) -> None
     """If stdio is a TTY, move the given process group to the foreground."""
-    if self.shell_tty_fd == -1:
+    if not self.JobControlEnabled():
       return
 
     try:

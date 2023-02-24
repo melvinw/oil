@@ -648,6 +648,13 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
     cmd_ev.MaybeRunExitTrap(box)
     status = box[0]
 
+    # Return the TTY to the original owner before exiting.
+    if job_state.JobControlEnabled():
+      try:
+        job_state.GiveTerminal(job_state.original_tty_pgrp)
+      except error.FatalRuntime as e:
+        self.errfmt.PrettyPrintError(e)
+
     if readline:
       try:
         readline.write_history_file(history_filename)
