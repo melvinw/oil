@@ -816,7 +816,7 @@ def _setpgid(pid, pgrp):
   try:
     posix.setpgid(pid, pgrp)
   except OSError as e:
-    e_die('osh: Failed set process group for PID %d to %d: %s' % (pid, pgrp, pyutil.strerror(e)))
+    e_die('osh: Failed to set process group for PID %d to %d: %s' % (pid, pgrp, pyutil.strerror(e)))
 
 
 class Process(Job):
@@ -1352,7 +1352,7 @@ class JobState(object):
       if fg_pgrp != pgrp:
         posix.tcsetpgrp(self.shell_tty_fd, pgrp)
     except OSError as e:
-      e_die('osh: Failed set move process group %d to foreground: %s' % (pgrp, pyutil.strerror(e)))
+      e_die('osh: Failed to move process group %d to foreground: %s' % (pgrp, pyutil.strerror(e)))
 
   def TakeTerminal(self):
     # type: () -> None
