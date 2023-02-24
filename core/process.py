@@ -808,6 +808,17 @@ class Job(object):
     raise NotImplementedError()
 
 
+def _setpgid(pid, pgrp):
+  # type: (int, int) -> None
+  if pgrp == -1:
+    pgrp = pid
+
+  try:
+    posix.setpgid(pid, pgrp)
+  except OSError as e:
+    e_die('osh: Failed set process group for PID %d to %d: %s' % (pid, pgrp, pyutil.strerror(e)))
+
+
 class Process(Job):
   """A process to run.
 
@@ -901,10 +912,7 @@ class Process(Job):
       # We technically don't need to do most of it in non-interactive, since we
       # did not change state in InitInteractiveShell().
       pid = posix.getpid()
-      if pgrp == -1:
-        pgrp = pid
-
-      posix.setpgid(pid, pgrp)
+      _setpgid(pid, pgrp)
 
       # Python sets SIGPIPE handler to SIG_IGN by default.  Child processes
       # shouldn't have this.
@@ -934,10 +942,7 @@ class Process(Job):
 
     # We call setpgid() in the the parent and child to avoid racing on group
     # membership in GiveTerminal() if the child wakes up first.
-    if pgrp == -1:
-      pgrp = pid
-
-    posix.setpgid(pid, pgrp)
+    _setpgid(pid, pgrp)
 
     #log('STARTED process %s, pid = %d', self, pid)
     self.tracer.OnProcessStart(pid, why)
@@ -1318,7 +1323,7 @@ class JobState(object):
     # If stdio is a TTY, put the shell's process group in the foreground.
     try:
       posix.tcsetpgrp(self.shell_tty_fd, self.shell_pgrp)
-    except OSError:
+    except OSError as e:
       # We probably aren't in the session leader's process group. Disable job
       # control.
       self.shell_tty_fd = -1
@@ -1339,10 +1344,15 @@ class JobState(object):
   def GiveTerminal(self, pgrp):
     # type: (int) -> None
     """If stdio is a TTY, move the given process group to the foreground."""
-    if self.shell_tty_fd != -1:
+    if self.shell_tty_fd == -1:
+      return
+
+    try:
       fg_pgrp = posix.tcgetpgrp(self.shell_tty_fd)
       if fg_pgrp != pgrp:
         posix.tcsetpgrp(self.shell_tty_fd, pgrp)
+    except OSError as e:
+      e_die('osh: Failed set move process group %d to foreground: %s' % (pgrp, pyutil.strerror(e)))
 
   def TakeTerminal(self):
     # type: () -> None
