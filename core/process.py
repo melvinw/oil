@@ -12,7 +12,7 @@ from __future__ import print_function
 from errno import EACCES, EBADF, ECHILD, EINTR, ENOENT, ENOEXEC
 import fcntl as fcntl_
 from fcntl import F_DUPFD, F_GETFD, F_SETFD, FD_CLOEXEC
-from signal import SIG_DFL, SIGINT, SIGPIPE, SIGQUIT, SIGTSTP, SIGTTOU, SIGTTIN
+from signal import SIG_DFL, SIG_IGN, SIGINT, SIGPIPE, SIGQUIT, SIGTSTP, SIGTTOU, SIGTTIN
 
 from _devbuild.gen.id_kind_asdl import Id
 from _devbuild.gen.runtime_asdl import (
@@ -73,6 +73,31 @@ _SHELL_MIN_FD = 100
 STYLE_DEFAULT = 0
 STYLE_LONG = 1
 STYLE_PID_ONLY = 2
+
+
+class ctx_IgnoreTtySignals(object):
+  """For operations that touch tty config."""
+
+  def __init__(self):
+    # type: () -> None
+    self.restore_tstp = pyos.Sigaction(SIGTSTP, SIG_IGN) == SIG_DFL # type: bool
+    self.restore_ttou = pyos.Sigaction(SIGTTOU, SIG_IGN) == SIG_DFL # type: bool
+    self.restore_ttin = pyos.Sigaction(SIGTTIN, SIG_IGN) == SIG_DFL # type: bool
+
+  def __enter__(self):
+    # type: () -> None
+    pass
+
+  def __exit__(self, type, value, traceback):
+    # type: (Any, Any, Any) -> None
+    if self.restore_tstp:
+      pyos.Sigaction(SIGTSTP, SIG_DFL)
+
+    if self.restore_ttou:
+      pyos.Sigaction(SIGTTOU, SIG_DFL)
+
+    if self.restore_ttin:
+      pyos.Sigaction(SIGTTIN, SIG_DFL)
 
 
 def GetTtyFd():
@@ -924,15 +949,16 @@ class Process(Job):
       # Respond to Ctrl-\ (core dump)
       pyos.Sigaction(SIGQUIT, SIG_DFL)
 
-      if self.parent_pipeline is None or self.parent_pipeline.Suspendable():
-        # Child processes should get Ctrl-Z.
-        pyos.Sigaction(SIGTSTP, SIG_DFL)
+      if pgrp != self.job_state.shell_pgrp:
+        if self.parent_pipeline is None or self.parent_pipeline.Suspendable():
+          # Child processes should get Ctrl-Z.
+          pyos.Sigaction(SIGTSTP, SIG_DFL)
 
-      # More signals from
-      # https://www.gnu.org/software/libc/manual/html_node/Launching-Jobs.html
-      # (but not SIGCHLD)
-      pyos.Sigaction(SIGTTOU, SIG_DFL)
-      pyos.Sigaction(SIGTTIN, SIG_DFL)
+        # More signals from
+        # https://www.gnu.org/software/libc/manual/html_node/Launching-Jobs.html
+        # (but not SIGCHLD)
+        pyos.Sigaction(SIGTTOU, SIG_DFL)
+        pyos.Sigaction(SIGTTIN, SIG_DFL)
 
       for st in self.state_changes:
         st.Apply()
@@ -1371,12 +1397,13 @@ class JobState(object):
     if not self.JobControlEnabled():
       return
 
-    try:
-      fg_pgrp = posix.tcgetpgrp(self.shell_tty_fd)
-      if fg_pgrp != pgrp:
-        posix.tcsetpgrp(self.shell_tty_fd, pgrp)
-    except OSError as e:
-      e_die('osh: Failed to move process group %d to foreground: %s' % (pgrp, pyutil.strerror(e)))
+    with ctx_IgnoreTtySignals():
+      try:
+        fg_pgrp = posix.tcgetpgrp(self.shell_tty_fd)
+        if fg_pgrp != pgrp:
+          posix.tcsetpgrp(self.shell_tty_fd, pgrp)
+      except OSError as e:
+        e_die('osh: Failed to move process group %d to foreground: %s' % (pgrp, pyutil.strerror(e)))
 
   def TakeTerminal(self):
     # type: () -> None
@@ -1607,6 +1634,11 @@ class Waiter(object):
     | Done(int pid, int status)  -- process done
     | EINTR(bool sigint)         -- may or may not retry
     """
+    in_fg = True
+    if self.job_state.JobControlEnabled():
+      fg_pgrp = posix.tcgetpgrp(self.job_state.shell_tty_fd)
+      in_fg = fg_pgrp == posix.getpgid(0)
+
     pid, status = pyos.WaitPid()
     if pid < 0:  # error case
       err_num = status
@@ -1626,7 +1658,9 @@ class Waiter(object):
     # notification of its exit, even though we didn't start it.  We can't have
     # any knowledge of such processes, so print a warning.
     if pid not in self.job_state.child_procs:
-      print_stderr("osh: PID %d stopped, but osh didn't start it" % pid)
+      if in_fg:
+        print_stderr("osh: PID %d stopped, but osh didn't start it" % pid)
+
       return W1_OK
 
     proc = self.job_state.child_procs[pid]
@@ -1637,8 +1671,9 @@ class Waiter(object):
       term_sig = WTERMSIG(status)
       status = 128 + term_sig
 
-      # Print newline after Ctrl-C.
-      if term_sig == SIGINT:
+      # Print newline after Ctrl-C, but only if we are in the foreground.
+      # Otherwise, the terminal will suspend us with SIGTTOU.
+      if term_sig == SIGINT and in_fg:
         print('')
 
       self.job_state.WhenDone(pid)
@@ -1655,8 +1690,10 @@ class Waiter(object):
 
       # BUG: Stopping pipelines doesn't work!
       # sleep 5 | wc -l then Ctrl-Z and fg
-      log('')
-      log('[PID %d] Stopped', pid)
+      if in_fg:
+        log('')
+        log('[PID %d] Stopped', pid)
+
       self.job_state.WhenStopped(pid)  # show in 'jobs' list, enable 'fg'
       proc.WhenStopped()
 

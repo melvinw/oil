@@ -382,9 +382,9 @@ def InitSignalSafe():
 
 
 def Sigaction(sig_num, handler):
-  # type: (int, Any) -> None
+  # type: (int, Any) -> Any
   """Register a signal handler"""
-  signal.signal(sig_num, handler)
+  return signal.signal(sig_num, handler)
 
 
 def RegisterSignalInterest(sig_num):

@@ -229,12 +229,14 @@ SignalSafe* InitSignalSafe() {
   return gSignalSafe;
 }
 
-void Sigaction(int sig_num, sighandler_t handler) {
+sighandler_t Sigaction(int sig_num, sighandler_t handler) {
   struct sigaction act = {};
   act.sa_handler = handler;
-  if (sigaction(sig_num, &act, nullptr) != 0) {
+  struct sigaction old_act = {};
+  if (sigaction(sig_num, &act, &old_act) != 0) {
     throw Alloc<OSError>(errno);
   }
+  return old_act.sa_handler;
 }
 
 static void signal_handler(int sig_num) {
